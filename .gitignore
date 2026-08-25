@@ -1,0 +1,20 @@
+# Pipeline outputs: feature shards, checkpoints and per-stage JSON.
+# Multi-GB and fully reproducible from the code, so they stay out of git.
+runs/
+
+# Stage logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+*.egg-info/
+build/
+dist/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
