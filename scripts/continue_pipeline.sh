@@ -5,17 +5,38 @@
 # training on a truncated or empty label set would silently produce meaningless numbers
 # rather than failing.
 #
-# Usage: scripts/continue_pipeline.sh <stage2_pid> [n_jobs]
+# Usage: scripts/continue_pipeline.sh [n_jobs]
 
 set -uo pipefail
 
-STAGE2_PID="${1:?usage: continue_pipeline.sh <stage2_pid> [n_jobs]}"
-N_JOBS="${2:-32}"
+N_JOBS="${1:-32}"
 CFG=/dev/null
+PATTERN="venv/bin/python3 -m halluc.pipeline.stage2_judge"
 
-echo "[$(date '+%F %T')] waiting for stage 2 (pid $STAGE2_PID)"
-while kill -0 "$STAGE2_PID" 2>/dev/null; do sleep 60; done
-echo "[$(date '+%F %T')] stage 2 process exited"
+# Wait on a process PATTERN rather than a pid captured at launch: `uv run` spawns the
+# real worker a moment after the wrapper, so a pid grabbed immediately is often a
+# transient shell that exits at once, firing this script against unfinished work.
+echo "[$(date '+%F %T')] waiting for a stage 2 judge to appear (pattern: $PATTERN)"
+for _ in $(seq 60); do
+    pgrep -f "$PATTERN" >/dev/null && break
+    sleep 5
+done
+if ! pgrep -f "$PATTERN" >/dev/null; then
+    echo "[$(date '+%F %T')] no stage 2 judge started within 5 min; stopping"
+    exit 1
+fi
+echo "[$(date '+%F %T')] judge running (pids: $(pgrep -f "$PATTERN" | tr '\n' ' ')); waiting"
+while pgrep -f "$PATTERN" >/dev/null; do sleep 60; done
+echo "[$(date '+%F %T')] all stage 2 judges exited"
+
+# Rebuild labels from whichever judges the config currently names. Required when the
+# judges were run with --skip-aggregate (concurrently, or a single judge re-run after a
+# pool change), since the votes have not been combined yet.
+echo "[$(date '+%F %T')] aggregating judge votes"
+if ! uv run python -m halluc.pipeline.stage2_judge --aggregate-only --config "$CFG"; then
+    echo "[$(date '+%F %T')] aggregation failed; stopping"
+    exit 1
+fi
 
 # Guard: every dataset must have labels with a non-degenerate class balance.
 if ! uv run python - <<'PY'

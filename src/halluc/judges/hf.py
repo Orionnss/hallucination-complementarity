@@ -56,27 +56,48 @@ class HFJudge(Judge):
         device: str = "cuda:0",
         load_in_4bit: bool = True,
         max_new_tokens: int = 8,
+        batch_size: int = 32,
     ) -> None:
         self.name = model_id
         self.model_id = model_id
         self.device = device
         self.max_new_tokens = max_new_tokens
+        self.batch_size = batch_size
         tokenizer_kwargs: dict = {}
         if "mistral" in model_id.lower():
             # Without this the shipped tokenizer uses an incorrect regex and tokenises
             # the prompt wrongly; transformers warns about it on load.
             tokenizer_kwargs["fix_mistral_regex"] = True
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, **tokenizer_kwargs)
+        # Decoder-only models must pad on the LEFT for batched generation: with right
+        # padding the pad tokens sit between the prompt and the continuation, so the
+        # model generates from padding and the decoded labels are silently wrong.
+        self.tokenizer.padding_side = "left"
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         self.model = _load_model(model_id, device, load_in_4bit)
 
-    @torch.inference_mode()
-    def judge(self, question: str, gold_answers: list[str], answer: str) -> tuple[Label, str]:
-        started = time.perf_counter()
-        messages = judge_messages(question, gold_answers, answer)
-        text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+    def _prompt(self, question: str, gold_answers: list[str], answer: str) -> str:
+        return self.tokenizer.apply_chat_template(
+            judge_messages(question, gold_answers, answer),
+            tokenize=False,
+            add_generation_prompt=True,
         )
-        inputs = self.tokenizer(text, return_tensors="pt").to(self.device)
+
+    @torch.inference_mode()
+    def judge_batch(
+        self, batch: list[tuple[str, list[str], str]]
+    ) -> list[tuple[Label, str]]:
+        """Label a batch of items.
+
+        Judging is a tiny amount of work per item — ~280 prompt tokens and 8 generated
+        tokens — so unbatched it leaves most of the GPU idle. Left padding (set in
+        __init__) keeps every prompt right-aligned, so a single slice at the shared
+        input width recovers each item's continuation.
+        """
+        started = time.perf_counter()
+        texts = [self._prompt(q, g, a) for q, g, a in batch]
+        inputs = self.tokenizer(texts, return_tensors="pt", padding=True).to(self.device)
         out = self.model.generate(
             **inputs,
             max_new_tokens=self.max_new_tokens,
@@ -86,11 +107,13 @@ class HFJudge(Judge):
             top_k=None,
             pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
         )
-        raw = self.tokenizer.decode(
-            out[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
-        )
-        self.last_seconds = time.perf_counter() - started
-        return parse_label(raw), raw.strip()
+        generated = out[:, inputs["input_ids"].shape[1] :]
+        raws = self.tokenizer.batch_decode(generated, skip_special_tokens=True)
+        self.last_seconds = (time.perf_counter() - started) / max(len(batch), 1)
+        return [(parse_label(raw), raw.strip()) for raw in raws]
+
+    def judge(self, question: str, gold_answers: list[str], answer: str) -> tuple[Label, str]:
+        return self.judge_batch([(question, gold_answers, answer)])[0]
 
     def unload(self) -> None:
         del self.model

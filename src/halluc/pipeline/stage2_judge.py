@@ -59,22 +59,32 @@ def run_judge(cfg: Config, judge_cfg, items_by_dataset: dict[str, list[dict]]) -
         device=judge_cfg.device,
         load_in_4bit=judge_cfg.load_in_4bit,
         max_new_tokens=judge_cfg.max_new_tokens,
+        batch_size=judge_cfg.batch_size,
     )
     try:
+        batch_size = getattr(judge, "batch_size", 1)
         for name, items in items_by_dataset.items():
             checkpoint = todo[name]
             pending = set(checkpoint.pending([i["item_id"] for i in items]))
-            for item in tqdm(
-                [i for i in items if i["item_id"] in pending], desc=f"{slug[:18]}/{name}", unit="item"
-            ):
-                started = time.perf_counter()
-                label, raw = judge.judge(item["question"], item["gold_answers"], item["answer"])
-                checkpoint.mark(
-                    item["item_id"],
-                    label=label.value,
-                    raw=raw[:200],
-                    seconds=round(time.perf_counter() - started, 3),
-                )
+            todo_items = [i for i in items if i["item_id"] in pending]
+            with tqdm(total=len(todo_items), desc=f"{slug[:18]}/{name}", unit="item") as bar:
+                for start in range(0, len(todo_items), batch_size):
+                    chunk = todo_items[start : start + batch_size]
+                    began = time.perf_counter()
+                    results = judge.judge_batch(
+                        [(i["question"], i["gold_answers"], i["answer"]) for i in chunk]
+                    )
+                    per_item = (time.perf_counter() - began) / len(chunk)
+                    # Checkpoint only after the whole batch returns, so a kill mid-batch
+                    # re-judges those items rather than recording partial results.
+                    for item, (label, raw) in zip(chunk, results):
+                        checkpoint.mark(
+                            item["item_id"],
+                            label=label.value,
+                            raw=raw[:200],
+                            seconds=round(per_item, 4),
+                        )
+                    bar.update(len(chunk))
     finally:
         judge.unload()
         for cp in todo.values():

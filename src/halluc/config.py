@@ -35,6 +35,9 @@ class JudgeConfig:
     #: lets a 3-model pool run sequentially on one GPU.
     load_in_4bit: bool = True
     max_new_tokens: int = 8
+    #: Judging is ~280 prompt tokens and 8 generated tokens per item, so
+    #: unbatched it leaves most of the GPU idle.
+    batch_size: int = 32
 
 
 @dataclass
@@ -56,6 +59,13 @@ class Config:
         default_factory=lambda: [
             JudgeConfig(model_id="google/gemma-3-12b-it"),
             JudgeConfig(model_id="Qwen/Qwen2.5-14B-Instruct"),
+            # Nemo over-flags relative to the other two (45.8% HALLUCINATED vs gemma
+            # 23.2% / qwen 29.8%), and as the least-agreeing judge it decides contested
+            # items toward HALLUCINATED ~90% of the time. It is kept because the
+            # alternatives tried were worse: Llama-3.1-8B (3.7% HALLUCINATED) and
+            # Llama-3.2-3B (0.2%) barely flag anything, and scored lower kappa against
+            # the gemma+qwen consensus on every dataset. Their verdicts remain on disk.
+            # Report the over-flagging bias as a limitation; see DESIGN.md.
             JudgeConfig(model_id="mistralai/Mistral-Nemo-Instruct-2407"),
         ]
     )
