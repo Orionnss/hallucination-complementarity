@@ -28,9 +28,17 @@ class Saplma(FeatureExtractor):
 
     name = "saplma"
 
+    #: float16 tops out at 65504. Gemma 3's residual stream reaches ~5.8e4 where Qwen3's
+    #: peaks near 1e2, so a fixed float16 cast would silently overflow to inf on some
+    #: models. Above this magnitude the block is kept in float32 instead.
+    FP16_SAFE_MAX = 3.0e4
+
     def extract(self, trace: ForwardTrace) -> dict[str, np.ndarray]:
-        # float16 halves the ~420 KB/sample cost; probe inputs are standardised anyway.
-        return {self.name: _last_token_stack(trace).cpu().numpy().astype(np.float16)}
+        stack = _last_token_stack(trace).cpu().numpy()
+        # float16 halves the ~420 KB/sample cost and probe inputs are standardised
+        # anyway, so it is used whenever the values comfortably fit.
+        dtype = np.float16 if np.abs(stack).max() < self.FP16_SAFE_MAX else np.float32
+        return {self.name: stack.astype(dtype)}
 
 
 @FEATURES.register("svd_baseline")

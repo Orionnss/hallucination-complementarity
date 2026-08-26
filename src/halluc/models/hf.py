@@ -17,7 +17,53 @@ from __future__ import annotations
 import time
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+
+def _load_causal_lm(model_id: str, **kwargs):
+    """Load a generator, picking the auto class by architecture.
+
+    Gemma 3 ships as Gemma3ForConditionalGeneration (multimodal) even though we use it
+    text-only, so it does not load under AutoModelForCausalLM.
+    """
+    architectures = getattr(AutoConfig.from_pretrained(model_id), "architectures", None) or []
+    if any("ConditionalGeneration" in a or "ImageText" in a for a in architectures):
+        from transformers import AutoModelForImageTextToText
+
+        return AutoModelForImageTextToText.from_pretrained(model_id, **kwargs)
+    return AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
+
+
+#: Generators validated with this pipeline. The registry accepts any HF causal LM, so
+#: this is documentation and a `--model` shorthand, not a restriction. Each entry's
+#: quirks are handled automatically: Gemma 3 loads through the image-text-to-text auto
+#: class, and its sliding-window layers are absorbed by LapEigvals' measured out-degree.
+KNOWN_GENERATORS = {
+    "qwen3-14b": "Qwen/Qwen3-14B",
+    "qwen3-4b": "Qwen/Qwen3-4B-Instruct-2507",
+    "llama3.2-3b": "meta-llama/Llama-3.2-3B-Instruct",
+    "gemma3-4b": "google/gemma-3-4b-it",
+    "gemma3-12b": "google/gemma-3-12b-it",
+}
+
+
+def resolve_model_id(name: str) -> str:
+    """Accept either a preset shorthand or a full HF model id."""
+    return KNOWN_GENERATORS.get(name.lower(), name)
+
+
+def model_dims(model_id: str) -> dict:
+    """Layer/head/hidden sizes, reading `text_config` for multimodal checkpoints."""
+    cfg = AutoConfig.from_pretrained(model_id)
+    text = getattr(cfg, "text_config", None) or cfg
+    return {
+        "n_layers": text.num_hidden_layers,
+        "n_heads": text.num_attention_heads,
+        "hidden_size": text.hidden_size,
+        # Gemma 3 interleaves sliding-window layers; see LapEigvals' divisor handling.
+        "sliding_window": getattr(text, "sliding_window", None),
+        "architecture": (architectures[0] if (architectures := cfg.architectures) else None),
+    }
 
 from ..datasets.base import QAItem
 from ..features.base import ForwardTrace
@@ -62,11 +108,12 @@ class HFGenerator(Generator):
         self._require_memory(device, load_in_4bit, reserve_gib)
         if load_in_4bit:
             kwargs["device_map"] = {"": device}
-        self.model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
+        self.model = _load_causal_lm(model_id, **kwargs)
         if not load_in_4bit:
             self.model.to(device)
         self.model.eval()
         self.input_device = device
+        self.dims = model_dims(model_id)
 
     @staticmethod
     def _require_memory(device: str, load_in_4bit: bool, reserve_gib: float) -> None:

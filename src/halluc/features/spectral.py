@@ -32,13 +32,16 @@ class LapEigvals(FeatureExtractor):
         self.k = k
 
     def extract(self, trace: ForwardTrace) -> dict[str, np.ndarray]:
-        T = trace.seq_len
         per_layer = []
         for attn in trace.attentions:  # [H, T, T]
             a = attn.to(torch.float32)
-            # Number of outgoing edges for token i, i.e. tokens at position >= i. Built
-            # per layer because a sharded model puts layers on different devices.
-            divisor = torch.arange(T, 0, -1, device=a.device, dtype=torch.float32)
+            # Outgoing edges for token i = the tokens that actually attend to it, counted
+            # from the attention matrix rather than assumed to be all T-i later tokens.
+            # For dense causal attention the two are identical, so this leaves Qwen-style
+            # models unchanged; for Gemma 3, whose local layers use a 1024 sliding window,
+            # assuming T-i would understate the degree of early tokens in long sequences
+            # and silently distort every eigenvalue.
+            divisor = (a > 0).sum(dim=1).clamp(min=1).to(torch.float32)  # [H, T]
             out_degree = a.sum(dim=1) / divisor  # column sums -> [H, T]
             self_attn = torch.diagonal(a, dim1=-2, dim2=-1)  # [H, T]
             eigenvalues = out_degree - self_attn  # diag(L), = eigenvalues of L

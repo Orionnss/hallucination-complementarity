@@ -279,9 +279,14 @@ def main() -> None:
         cfg.seeds = args.seeds
     scope = args.scope or cfg.training_scope
 
-    detectors = build_detectors()
-    needed = sorted({b for d in detectors.values() for b in d.blocks} | {"icr_mean"})
+    # Probe-layer grids depend on the generator's depth, so build a throwaway detector
+    # set to learn which blocks to load, then rebuild once the real depth is known.
+    needed = sorted({b for d in build_detectors().values() for b in d.blocks} | {"icr_mean"})
     arrays_by_dataset = {name: load_arrays(cfg, name, needed) for name in cfg.datasets}
+    n_layers = next(iter(arrays_by_dataset.values()))["data"]["saplma"].shape[1] - 1
+    detectors = build_detectors(n_layers=n_layers)
+    print(f"generator depth: {n_layers} layers -> saplma probe grid "
+          f"{[g['layer'] for g in detectors['saplma'].grid]}")
     for name, arrays in arrays_by_dataset.items():
         print(
             f"[{name}] scored={len(arrays['y'])} "

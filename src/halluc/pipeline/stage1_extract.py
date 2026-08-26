@@ -23,7 +23,7 @@ from tqdm import tqdm
 from ..config import Config
 from ..datasets import DATASETS
 from ..features import FEATURES
-from ..io import Checkpoint, ShardWriter, provenance, write_json
+from ..io import Checkpoint, ShardWriter, provenance, read_json, write_json
 from ..models import GENERATORS
 
 
@@ -114,6 +114,26 @@ def run_dataset(cfg: Config, dataset_name: str, generator) -> dict:
     return summary
 
 
+def _guard_generator(cfg) -> None:
+    """Refuse to mix generators inside one run directory.
+
+    Feature shapes are model-specific ([L, H, k] and [L+1, d] both change), so writing a
+    second generator into an existing run would produce shards that cannot be stacked —
+    and the failure would surface much later, in stage 3, as a confusing shape error.
+    """
+    for dataset_name in cfg.datasets:
+        manifest = cfg.stage_dir("stage1_extract", dataset_name) / "manifest.json"
+        if not manifest.exists():
+            continue
+        existing = read_json(manifest).get("generator")
+        if existing and existing != cfg.generator.model_id:
+            raise SystemExit(
+                f"run '{cfg.run_id}' already holds features from {existing}, but this run "
+                f"uses {cfg.generator.model_id}. Pass --run-id to start a separate run "
+                f"(e.g. --run-id {cfg.generator.model_id.split('/')[-1].lower()})."
+            )
+
+
 def _summary(cfg, dataset_name, pool, records, failures, started) -> dict:
     ordered = [records[item.item_id] for item in pool if item.item_id in records]
     return {
@@ -147,6 +167,16 @@ def main() -> None:
     parser.add_argument("--datasets", nargs="*", default=None, help="subset of configured datasets")
     parser.add_argument("--limit", type=int, default=None, help="cap pool size (smoke tests)")
     parser.add_argument("--device", default=None, help="override generator device, e.g. cuda:0")
+    parser.add_argument(
+        "--model", default=None,
+        help="generator: a preset (qwen3-14b, qwen3-4b, llama3.2-3b, gemma3-4b, "
+             "gemma3-12b) or any HF model id",
+    )
+    parser.add_argument(
+        "--run-id", default=None,
+        help="output namespace. A different generator REQUIRES a different run-id: "
+             "feature shapes are model-specific and would collide.",
+    )
     args = parser.parse_args()
 
     cfg = Config.load(args.config)
@@ -156,6 +186,12 @@ def main() -> None:
         cfg.pool_size = args.limit
     if args.device:
         cfg.generator.device = args.device
+    if args.model:
+        from ..models.hf import resolve_model_id
+        cfg.generator.model_id = resolve_model_id(args.model)
+    if args.run_id:
+        cfg.run_id = args.run_id
+    _guard_generator(cfg)
 
     generator = GENERATORS.create(
         cfg.generator.kind,

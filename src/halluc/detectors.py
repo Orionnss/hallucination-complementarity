@@ -23,9 +23,22 @@ from sklearn.preprocessing import StandardScaler
 
 from .registry import Registry
 
-#: Candidate probe layers for SAPLMA. The original paper picks a middle layer; the exact
-#: one is model-specific, so it is tuned on the inner fold instead of guessed.
-SAPLMA_LAYERS = (12, 16, 20, 24, 28, 32, 40)
+#: Candidate probe depths for SAPLMA, as fractions of model depth. The original paper
+#: picks a middle layer; the exact one is model-specific, so it is tuned on the inner
+#: fold. Fractions rather than absolute indices because generators differ in depth —
+#: Llama-3.2-3B has 28 layers, Gemma-3-12B has 48 — and a hardcoded index either crashes
+#: or silently probes a different relative depth.
+SAPLMA_DEPTH_FRACTIONS = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0)
+#: Depths the union detectors probe, likewise relative.
+UNION_DEPTH_FRACTIONS = (0.5, 0.6, 0.7)
+
+
+def depth_layers(n_layers: int, fractions=SAPLMA_DEPTH_FRACTIONS) -> tuple[int, ...]:
+    """Absolute layer indices for the given depth fractions.
+
+    At n_layers=40 (Qwen3-14B) this reproduces the original (12, 16, 20, 24, 28, 32, 40).
+    """
+    return tuple(sorted({max(1, min(n_layers, round(f * n_layers))) for f in fractions}))
 
 
 def _flatten(array: np.ndarray) -> np.ndarray:
@@ -85,7 +98,10 @@ class SaplmaDetector(Detector):
     """MLP probe on one layer's last-token hidden state."""
 
     def matrix(self, data: dict[str, np.ndarray], params: dict) -> np.ndarray:
-        return data["saplma"][:, params["layer"], :].astype(np.float64)
+        # Clamp defensively: hidden_states has n_layers+1 entries, and a grid built for
+        # a deeper model must not index past the end.
+        layer = min(params["layer"], data["saplma"].shape[1] - 1)
+        return data["saplma"][:, layer, :].astype(np.float64)
 
     def estimator(self, params: dict, seed: int):
         return Pipeline(
@@ -146,8 +162,9 @@ class UnionDetector(Detector):
     equal: bool = False
 
     def matrix(self, data: dict[str, np.ndarray], params: dict) -> np.ndarray:
+        layer = min(params["layer"], data["saplma"].shape[1] - 1)
         parts = [_flatten(data["lapeigvals"]), _flatten(data["attn_baseline"]),
-                 data["saplma"][:, params["layer"], :].astype(np.float64),
+                 data["saplma"][:, layer, :].astype(np.float64),
                  _flatten(data["svd_baseline"]), _flatten(data["icr"])]
         return np.concatenate(parts, axis=1)
 
@@ -187,13 +204,26 @@ def _grid(**axes) -> list[dict]:
     return [dict(zip(keys, values)) for values in product(*(axes[k] for k in keys))]
 
 
-def build_detectors() -> dict[str, Detector]:
-    """All detectors for a run. Registered lazily so the grids stay in one place."""
+def build_detectors(n_layers: int = 40) -> dict[str, Detector]:
+    """All detectors for a run. Registered lazily so the grids stay in one place.
+
+    `n_layers` is the generator's depth, so SAPLMA's probe-layer grid adapts to the
+    model instead of assuming Qwen3-14B's 40 layers.
+    """
+    saplma_layers = depth_layers(n_layers)
+    union_layers = depth_layers(n_layers, UNION_DEPTH_FRACTIONS)
     return {
+        # Fixed rather than searched: these values come from a prior experiment. The
+        # earlier grid selected its own boundary on both axes (n_components=256 was the
+        # maximum offered, C=0.003 the minimum), so it was under-tuned; 512 components
+        # with lighter regularisation supersedes it.
+        # NOTE: k stays at 10. k is fixed at extraction time — stage 1 persists only the
+        # top 10 eigenvalues per head — so changing it requires re-extraction, not a
+        # change here.
         "lapeigvals": PCALinearDetector(
             name="lapeigvals",
             blocks=("lapeigvals",),
-            grid=_grid(n_components=(64, 128, 256), C=_C_GRID),
+            grid=[{"n_components": 512, "C": 1.0}],
         ),
         "attn_baseline": LinearDetector(
             name="attn_baseline", blocks=("attn_baseline",), grid=_grid(C=_C_GRID)
@@ -202,7 +232,7 @@ def build_detectors() -> dict[str, Detector]:
             name="svd_baseline", blocks=("svd_baseline",), grid=_grid(C=_C_GRID)
         ),
         "saplma": SaplmaDetector(
-            name="saplma", blocks=("saplma",), grid=_grid(layer=SAPLMA_LAYERS)
+            name="saplma", blocks=("saplma",), grid=_grid(layer=saplma_layers)
         ),
         "icr": IcrDetector(
             name="icr", blocks=("icr", "icr_mean"), grid=_grid(pooling=("icr", "icr_mean", "both"))
@@ -210,13 +240,13 @@ def build_detectors() -> dict[str, Detector]:
         "union_raw": UnionDetector(
             name="union_raw",
             blocks=("lapeigvals", "attn_baseline", "saplma", "svd_baseline", "icr"),
-            grid=_grid(layer=(20, 24, 28), C=_C_GRID),
+            grid=_grid(layer=union_layers, C=_C_GRID),
             equal=False,
         ),
         "union_equal": UnionDetector(
             name="union_equal",
             blocks=("lapeigvals", "attn_baseline", "saplma", "svd_baseline", "icr"),
-            grid=_grid(layer=(20, 24, 28), per_block=(128,), C=_C_GRID),
+            grid=_grid(layer=union_layers, per_block=(128,), C=_C_GRID),
             equal=True,
         ),
     }
