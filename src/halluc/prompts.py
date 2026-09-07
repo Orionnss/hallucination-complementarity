@@ -71,3 +71,60 @@ def judge_messages(question: str, gold_answers: list[str], answer: str) -> list[
             ),
         },
     ]
+
+
+# --- base (non-instruction-tuned) generators ---------------------------------------
+#
+# A pretrained checkpoint has no chat template and does not follow instructions: given
+# the instruct system prompt it continues the text rather than answering. Few-shot
+# completion is the standard way to elicit QA from one, and the shots carry the format
+# that the instruct prompt carries in words.
+#
+# The demonstrations are fixed and deliberately drawn from outside the four evaluation
+# datasets, so no shot can leak an answer. One of them abstains: without it a base model
+# effectively never declines, the INVALID class never fires, and the abstention findings
+# would not transfer between the instruct and base runs.
+
+BASE_HEADER = (
+    "Answer each question. If you do not know the answer, say \"I don't know\".\n\n"
+)
+
+BASE_SHOTS = [
+    ("What is the chemical symbol for gold?", "Au"),
+    ("Which ocean lies between Africa and Australia?", "The Indian Ocean"),
+    ("What was the middle name of the third person to summit K2?", "I don't know"),
+    ("In what year did the Chernobyl disaster occur?", "1986"),
+    ("What kind of animal is a Komodo dragon?", "A lizard"),
+]
+
+BASE_CTX_HEADER = (
+    "Read each passage and answer the final question. If the passage does not say, "
+    "answer \"I don't know\".\n\n"
+)
+
+#: Two short shots rather than five: CoQA passages run to ~1,400 characters, and five
+#: demonstration passages would dominate the prompt and slow generation for no gain.
+BASE_CTX_SHOTS = [
+    ("The library opened in 1931. It was designed by Marta Rios and holds 40,000 books.",
+     "Who designed it?", "Marta Rios"),
+    ("Tom bought three apples and gave one to Ana.", "How many did he keep?", "Two"),
+]
+
+#: Generation stops at the first of these: a base model otherwise runs on and invents the
+#: next question, and the trailing text would move the last-token position the probes read.
+BASE_STOP_STRINGS = ["\nQ:", "\nPassage:", "\n\n"]
+
+
+def base_prompt_text(item: QAItem) -> str:
+    """Few-shot completion prompt for a generator with no chat template."""
+    if item.context:
+        parts = [BASE_CTX_HEADER]
+        for ctx, q, a in BASE_CTX_SHOTS:
+            parts.append(f"Passage: {ctx}\nQ: {q}\nA: {a}\n\n")
+        parts.append(f"Passage: {item.context}\nQ: {item.question}\nA:")
+        return "".join(parts)
+    parts = [BASE_HEADER]
+    for q, a in BASE_SHOTS:
+        parts.append(f"Q: {q}\nA: {a}\n\n")
+    parts.append(f"Q: {item.question}\nA:")
+    return "".join(parts)
