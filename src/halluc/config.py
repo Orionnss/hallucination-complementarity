@@ -41,6 +41,31 @@ class JudgeConfig:
 
 
 @dataclass
+class CharmConfig:
+    """CHARM (arXiv 2509.24770). Not a stage-1 feature block — see stage6_charm.
+
+    CHARM's input is a whole attention graph per sample, which is too large and too
+    ragged to persist alongside the other methods' `.npz` blocks, so it builds its
+    graphs in its own extraction loop and trains from a RAM cache.
+    """
+
+    #: Attention sparsification threshold of Equation 1. The paper sweeps
+    #: {0.5, 0.1, 0.05, 0.01, 0.001} and keeps 0.05 as the best accuracy/footprint
+    #: trade-off.
+    tau: float = 0.05
+    #: Residual-stream layers to attach as node features, as fractions of model depth.
+    #: Empty list gives the attention-only variant, CHARM (att).
+    act_fractions: list[float] = field(default_factory=lambda: [0.7])
+    #: "default" = the pinned four-point grid; "full" = Table 9's 288-point search space.
+    grid: str = "default"
+    #: Bounds the dense [E, hidden] message tensor when a batch collects several long
+    #: CoQA graphs.
+    max_edges_per_batch: int = 400_000
+    #: Abort rather than swap if the RAM graph cache would exceed this.
+    max_cache_gib: float = 300.0
+
+
+@dataclass
 class Config:
     run_id: str = "main"
     output_root: str = "runs"
@@ -73,6 +98,7 @@ class Config:
         default_factory=lambda: ["lapeigvals", "attn_baseline", "saplma", "svd_baseline", "icr"]
     )
     shard_size: int = 250
+    charm: CharmConfig = field(default_factory=CharmConfig)
 
     @property
     def run_dir(self) -> Path:
@@ -91,8 +117,9 @@ class Config:
         with open(path) as fh:
             raw = yaml.safe_load(fh) or {}
         gen = GeneratorConfig(**raw.pop("generator", {}))
+        charm = CharmConfig(**raw.pop("charm", {}))
         judges = [JudgeConfig(**j) for j in raw.pop("judges", [])] or None
-        cfg = cls(generator=gen, **raw)
+        cfg = cls(generator=gen, charm=charm, **raw)
         if judges:
             cfg.judges = judges
         return cfg

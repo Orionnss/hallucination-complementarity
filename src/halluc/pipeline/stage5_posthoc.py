@@ -322,10 +322,17 @@ def _ms(values) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", default=None)
+    ap.add_argument(
+        "--run-id", default=None,
+        help="output namespace; must match the run stage 1 wrote "
+             "(one per generator)",
+    )
     ap.add_argument("--n-bootstrap", type=int, default=1000)
     args = ap.parse_args()
 
     cfg = Config.load(args.config)
+    if args.run_id:
+        cfg.run_id = args.run_id
     seeds = [(s, d) for s in cfg.seeds if (d := load_seed(cfg, s)) is not None]
     if not seeds:
         raise SystemExit("no stage 3 predictions found")

@@ -28,32 +28,89 @@ from ..eval.metrics import holm_bonferroni, pairwise_agreement, score_prediction
 from ..io import provenance, read_json, write_json
 
 
-def _load_seed(cfg: Config, scope: str, seed: int, dataset_name: str | None = None):
+def _charm_predictions(cfg: Config, scope: str, seed: int) -> dict | None:
+    """CHARM's out-of-fold predictions, if stage 6 has been run for this scope and seed.
+
+    CHARM trains from graphs held in RAM rather than from stage 1's shards, so it writes
+    its own predictions file instead of joining stage 3's. Its samples are the same draw
+    stage 3 made, minus any item whose graph failed to build, which is why the caller
+    aligns on item ids rather than assuming a shared row order.
+    """
+    path = cfg.stage_dir("stage6_charm", scope, f"seed{seed}") / "predictions.npz"
+    if not path.exists():
+        return None
+    data = np.load(path, allow_pickle=True)
+    methods = sorted(k.removeprefix("preds__") for k in data.files if k.startswith("preds__"))
+    return {
+        "item_ids": data["item_ids"].astype(str),
+        "preds": {m: data[f"preds__{m}"] for m in methods},
+        "scores": {m: data[f"scores__{m}"] for m in methods},
+        "methods": methods,
+    }
+
+
+def _load_seed(
+    cfg: Config,
+    scope: str,
+    seed: int,
+    dataset_name: str | None = None,
+    include_charm: bool = True,
+):
     """Out-of-fold predictions for one seed, optionally restricted to one dataset.
 
     Under the pooled scope every seed file holds all datasets, so a per-dataset view is
     a mask over the same arrays — the predictions still come from the single probe
     trained on everything.
+
+    Stage 6's CHARM predictions are merged in here when present. Because kappa and
+    McNemar are paired tests, every method has to be compared on an identical set of
+    items, so any item CHARM lacks is dropped from *all* methods rather than filled in.
     """
     path = cfg.stage_dir("stage3_train", scope, f"seed{seed}") / "predictions.npz"
     if not path.exists():
         return None
     data = np.load(path, allow_pickle=True)
     methods = sorted(k.removeprefix("preds__") for k in data.files if k.startswith("preds__"))
+    y = data["y"]
+    preds = {m: data[f"preds__{m}"] for m in methods}
+    scores = {m: data[f"scores__{m}"] for m in methods}
+    datasets = data["dataset"].astype(str) if "dataset" in data.files else None
+    n_dropped = 0
+
+    charm = _charm_predictions(cfg, scope, seed) if include_charm else None
+    if charm is not None and "item_ids" in data.files:
+        base_ids = data["item_ids"].astype(str)
+        charm_row = {item_id: row for row, item_id in enumerate(charm["item_ids"])}
+        keep = np.array([i in charm_row for i in base_ids])
+        take = np.array([charm_row[i] for i in base_ids[keep]], dtype=int)
+        n_dropped = int((~keep).sum())
+        y = y[keep]
+        preds = {m: v[keep] for m, v in preds.items()}
+        scores = {m: v[keep] for m, v in scores.items()}
+        if datasets is not None:
+            datasets = datasets[keep]
+        for method in charm["methods"]:
+            preds[method] = charm["preds"][method][take]
+            scores[method] = charm["scores"][method][take]
+        methods = sorted(methods + charm["methods"])
+
     mask = slice(None)
-    if dataset_name is not None and "dataset" in data.files:
-        mask = data["dataset"].astype(str) == dataset_name
+    if dataset_name is not None and datasets is not None:
+        mask = datasets == dataset_name
         if not np.any(mask):
             return None
     return {
-        "y": data["y"][mask],
-        "preds": {m: data[f"preds__{m}"][mask] for m in methods},
-        "scores": {m: data[f"scores__{m}"][mask] for m in methods},
+        "y": y[mask],
+        "preds": {m: preds[m][mask] for m in methods},
+        "scores": {m: scores[m][mask] for m in methods},
         "methods": methods,
+        "n_dropped_for_charm": n_dropped,
     }
 
 
-def analyse_dataset(cfg: Config, dataset_name: str, scope: str | None = None) -> dict:
+def analyse_dataset(
+    cfg: Config, dataset_name: str, scope: str | None = None, include_charm: bool = True
+) -> dict:
     """Complementarity analysis for one evaluation slice.
 
     `dataset_name` may be a real dataset (a mask over the pooled predictions) or the
@@ -69,7 +126,7 @@ def analyse_dataset(cfg: Config, dataset_name: str, scope: str | None = None) ->
         source, slice_name = dataset_name, None
 
     for seed in cfg.seeds:
-        loaded = _load_seed(cfg, source, seed, slice_name)
+        loaded = _load_seed(cfg, source, seed, slice_name, include_charm)
         if loaded is None:
             continue
         y, preds = loaded["y"], loaded["preds"]
@@ -93,7 +150,14 @@ def analyse_dataset(cfg: Config, dataset_name: str, scope: str | None = None) ->
             stats["mcnemar"]["p_holm"] = corrected[pair]["p_holm"]
             stats["mcnemar"]["significant_holm"] = corrected[pair]["significant"]
             agreement_by_pair[pair].append(stats)
-        per_seed.append({"seed": seed, "n": int(len(y)), "pairwise": pairwise})
+        per_seed.append({
+            "seed": seed,
+            "n": int(len(y)),
+            # Non-zero only when stage 6 ran and some item's graph failed to build; the
+            # same rows are then absent for every method, so the pairing stays honest.
+            "n_dropped_for_charm": loaded["n_dropped_for_charm"],
+            "pairwise": pairwise,
+        })
 
     if not per_seed:
         return {"dataset": dataset_name, "error": "no stage 3 predictions found"}
@@ -168,11 +232,23 @@ def _print_table(summary: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=None)
+    parser.add_argument(
+        "--run-id", default=None,
+        help="output namespace; must match the run stage 1 wrote "
+             "(one per generator)",
+    )
     parser.add_argument("--datasets", nargs="*", default=None)
     parser.add_argument("--scope", choices=("pooled", "per_dataset"), default=None)
+    parser.add_argument(
+        "--no-charm", action="store_true",
+        help="ignore stage 6's CHARM predictions even when they exist, so the other "
+             "detectors are compared on the full stage-3 sample",
+    )
     args = parser.parse_args()
 
     cfg = Config.load(args.config)
+    if args.run_id:
+        cfg.run_id = args.run_id
     if args.datasets:
         cfg.datasets = args.datasets
     scope = args.scope or cfg.training_scope
@@ -183,7 +259,7 @@ def main() -> None:
     # look different in aggregate than within any single dataset.
     slices = [*cfg.datasets, "pooled"] if scope == "pooled" else list(cfg.datasets)
     for dataset_name in slices:
-        summary = analyse_dataset(cfg, dataset_name, scope)
+        summary = analyse_dataset(cfg, dataset_name, scope, include_charm=not args.no_charm)
         summaries[dataset_name] = summary
         if "error" in summary:
             print(f"[{dataset_name}] {summary['error']}")

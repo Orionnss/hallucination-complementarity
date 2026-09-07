@@ -158,6 +158,11 @@ def aggregate(cfg: Config, dataset_name: str, items: list[dict]) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=None)
+    parser.add_argument(
+        "--run-id", default=None,
+        help="output namespace; must match the run stage 1 wrote "
+             "(one per generator)",
+    )
     parser.add_argument("--datasets", nargs="*", default=None)
     parser.add_argument("--device", default=None, help="override judge device")
     parser.add_argument(
@@ -176,6 +181,8 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = Config.load(args.config)
+    if args.run_id:
+        cfg.run_id = args.run_id
     if args.datasets:
         cfg.datasets = args.datasets
     if args.device:
