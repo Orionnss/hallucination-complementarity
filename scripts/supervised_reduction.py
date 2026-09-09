@@ -54,7 +54,9 @@ from halluc.eval.metrics import best_threshold
 from halluc.io import load_features, write_json
 from halluc.pipeline.stage5_posthoc import _folds, load_seed
 
-LAYER = {"main": 24, "gemma3-12b": 29, "gemma3-4b": 17, "llama3.2-3b": 14}
+LAYER = {"main": 24, "gemma3-12b": 29, "gemma3-4b": 17, "llama3.2-3b": 14,
+         # base generators, same depths as their instruct twins
+         "llama3.2-3b-base": 14, "gemma3-12b-pt": 29}
 C_GRID = (0.003, 0.03, 0.3, 3.0)
 PLS_DIMS = (2, 4, 8, 16, 32, 64)
 PCA_DIMS = (8, 16, 128)
@@ -170,9 +172,13 @@ def main() -> None:
         print(f"  -> best: {best[1]} = {best[0]:.4f}   vs pca128 {b:.4f} "
               f"({best[0] - b:+.4f})")
 
+    # Per-seed values are kept alongside the means: PLS-8 and PCA-128 differ by under
+    # .01 in most cells, and a mean cannot say whether that gap survives seed noise.
     write_json(Path(f"runs/{args.run}/stage5_posthoc/supervised_reduction.json"),
-               {f"{v}|{s}": {m: round(float(np.mean(d[m])), 4) for m in d}
-                for (v, s), d in acc.items()})
+               {"mean": {f"{v}|{s}": {m: round(float(np.mean(d[m])), 4) for m in d}
+                         for (v, s), d in acc.items()},
+                "per_seed": {f"{v}|{s}": {m: [round(float(x), 5) for x in d[m]] for m in d}
+                             for (v, s), d in acc.items()}})
     print(f"\nwrote runs/{args.run}/stage5_posthoc/supervised_reduction.json")
 
 
