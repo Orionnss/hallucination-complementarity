@@ -44,9 +44,13 @@ from halluc.eval.metrics import best_threshold
 from halluc.io import load_features, write_json
 from halluc.pipeline.stage5_posthoc import _folds, load_seed
 
-LAYER = {"main": 24, "gemma3-12b": 29, "gemma3-4b": 17, "llama3.2-3b": 14}
+LAYER = {"main": 24, "gemma3-12b": 29, "gemma3-4b": 17, "llama3.2-3b": 14,
+         # base generators: same depths as their instruct twins, so the
+         # instruct/base comparison varies the model and not the probe layer
+         "llama3.2-3b-base": 14, "gemma3-12b-pt": 29}
 C_GRID = (0.003, 0.03, 0.3, 3.0)
-RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b"]
+RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b",
+        "llama3.2-3b-base", "gemma3-12b-pt"]
 
 
 def load_saplma(cfg, ids, layer):
