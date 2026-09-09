@@ -156,9 +156,25 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--runs", nargs="*", default=["main"])
     ap.add_argument("--seeds", nargs="*", type=int, default=[0, 1, 2, 3, 4])
+    ap.add_argument("--out", default="runs/saplma_mlp_tuned.json",
+                    help="destination file; give each parallel generator its own, then "
+                         "--merge, since a shared file would lose whichever result "
+                         "landed between another process's read and its write")
+    ap.add_argument("--merge", nargs="*", default=None,
+                    help="fold the named files into runs/saplma_mlp_tuned.json and exit")
     args = ap.parse_args()
 
-    dest = Path("runs/saplma_mlp_tuned.json")
+    if args.merge is not None:
+        dest = Path("runs/saplma_mlp_tuned.json")
+        out = json.loads(dest.read_text()) if dest.exists() else {}
+        for f in args.merge:
+            for run, res in json.loads(Path(f).read_text()).items():
+                out[run] = res
+        write_json(dest, out)
+        print(f"merged {len(args.merge)} files -> {dest} ({sorted(out)})")
+        return
+
+    dest = Path(args.out)
     out = json.loads(dest.read_text()) if dest.exists() else {}
     for run in args.runs:
         res, picks = run_one(run, args.seeds, GRID)
