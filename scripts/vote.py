@@ -46,6 +46,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from scipy.stats import rankdata
+from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.metrics import (accuracy_score, balanced_accuracy_score, f1_score,
                              matthews_corrcoef, roc_auc_score)
 
@@ -55,21 +56,26 @@ METHODS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline"]
 RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b"]
 
 
-def _thresh(y, s, groups, seed):
-    """Pick one threshold by grouped 5-fold cross-fitting, so no item's own fold sets it.
+def _cross_fit_predict(y, s, groups, seed) -> np.ndarray:
+    """Threshold each fold using only the other folds, and return the predictions.
 
-    Averaging the per-fold optima rather than optimising on all of the data keeps this
-    honest: the stored scores are already out-of-fold with respect to the detectors, but
-    a threshold chosen on the full vector would still peek.
+    The earlier form of this returned a single float: the mean of the five per-fold
+    optima, applied to every item. That leaks. Each item sits in the training part of
+    four of the five folds, so the averaged threshold has seen its label, and pooled MCC
+    came out about +0.0035 too high across all six generators -- landing between the
+    honest value and one fitted on the whole vector, which is exactly what averaging
+    four-fifths-seen optima produces.
+
+    Grouping is not optional: CoQA turns share a story and SQuAD questions share a
+    paragraph, so an ungrouped split puts near-duplicates on both sides of it.
     """
-    from sklearn.model_selection import StratifiedGroupKFold
-    picks = []
-    for tr, _ in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(
+    pred = np.zeros(len(y), dtype=int)
+    for tr, te in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(
             s.reshape(-1, 1), y, groups):
         grid = np.quantile(s[tr], np.linspace(0.05, 0.95, 91))
-        picks.append(max(grid, key=lambda t: matthews_corrcoef(y[tr], (s[tr] >= t).astype(int))))
-    return float(np.mean(picks))
-
+        thr = max(grid, key=lambda t: matthews_corrcoef(y[tr], (s[tr] >= t).astype(int)))
+        pred[te] = (s[te] >= thr).astype(int)
+    return pred
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -97,7 +103,7 @@ def main() -> None:
                     "vote_hard_4of5": ((votes >= 4).astype(int), votes / 5.0),
                     "vote_unanimous": ((votes == 5).astype(int), votes / 5.0)}
             for name, sc in (("vote_soft", S.mean(0)), ("vote_rank", R.mean(0))):
-                cand[name] = ((sc >= _thresh(y, sc, groups, seed)).astype(int), sc)
+                cand[name] = (_cross_fit_predict(y, sc, groups, seed), sc)
 
             for name, (pred, sc) in cand.items():
                 for scope in ["pooled", "pooled_no_coqa"] + sorted(set(ds_arr)):
