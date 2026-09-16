@@ -50,15 +50,23 @@ ALL = ["saplma"] + OTHERS
 RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b"]
 
 
-def tuned_threshold(y, s, groups, seed):
-    """Threshold averaged over grouped folds, so no item's own fold sets it."""
-    picks = []
-    for tr, _ in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(
+def cross_fit_predict(y, s, groups, seed):
+    """Threshold each fold on the other four, and return the predictions.
+
+    This previously averaged the five per-fold optima and applied that one value to every
+    item, under the claim that no item's own fold set it. That is not what it did: each
+    item sits in the training part of four of the five folds, so the averaged threshold
+    had seen its label. Measured elsewhere in this repo the leak was worth about +0.0035
+    pooled MCC. Grouping stays mandatory -- CoQA turns share a story and SQuAD questions
+    share a paragraph.
+    """
+    pred = np.zeros(len(y), dtype=int)
+    for tr, te in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(
             s.reshape(-1, 1), y, groups):
         grid = np.unique(np.quantile(s[tr], np.linspace(0.02, 0.98, 60)))
-        picks.append(max(grid, key=lambda t: matthews_corrcoef(
-            y[tr], (s[tr] >= t).astype(int))))
-    return float(np.mean(picks))
+        thr = max(grid, key=lambda t: matthews_corrcoef(y[tr], (s[tr] >= t).astype(int)))
+        pred[te] = (s[te] >= thr).astype(int)
+    return pred
 
 
 def main() -> None:
@@ -98,7 +106,7 @@ def main() -> None:
 
             for name, (pred, sc) in cand.items():
                 if pred is None:
-                    pred = (sc >= tuned_threshold(y, sc, groups, si)).astype(int)
+                    pred = cross_fit_predict(y, sc, groups, si)
                 for scope in ["pooled"] + sorted(set(ds_arr)):
                     msk = (np.ones(len(y), bool) if scope == "pooled"
                            else (ds_arr == scope))
