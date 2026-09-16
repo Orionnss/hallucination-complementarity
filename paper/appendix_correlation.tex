@@ -1,0 +1,197 @@
+\section{Correlation and voter-ablation details}
+\label{sec:correlation_details}
+
+All figures below use each detector under its own published probe, on the
+out-of-fold predictions of stage~3's nested cross-validation, averaged over 5 seeds. Four
+agreement metrics are reported because they do not measure the same object: Cohen's
+$\kappa$ and raw agreement are computed on the binary decisions, Pearson $r$ and
+Spearman $\rho$ on the continuous scores. The first pair answers whether two detectors
+make the same calls; the second, whether they order items the same way.
+
+\subsection{Pairwise agreement, all four metrics}
+
+\begin{table}[h]
+  \centering
+  \caption{All four metrics on Qwen3-14B, pooled. Detector pairs only; a vote is
+  built from the detectors, so any vote--detector cell is partly definitional and
+  is excluded here.}
+  \footnotesize
+  \begin{tabular}{l c c c c}
+    \hline
+    Pair & $\kappa$ & Agreement & Pearson $r$ & Spearman $\rho$ \\
+    \hline
+    LapEig. / Attn. & 0.536 & 0.795 & 0.706 & 0.696 \\
+    SAPLMA / LapEig. & 0.523 & 0.783 & 0.697 & 0.692 \\
+    LapEig. / ICR & 0.510 & 0.778 & 0.687 & 0.679 \\
+    SAPLMA / Attn. & 0.467 & 0.755 & 0.630 & 0.611 \\
+    SAPLMA / ICR & 0.454 & 0.747 & 0.605 & 0.591 \\
+    ICR / Attn. & 0.450 & 0.749 & 0.607 & 0.590 \\
+    ICR / SVD & 0.404 & 0.726 & 0.552 & 0.558 \\
+    LapEig. / SVD & 0.399 & 0.729 & 0.574 & 0.570 \\
+    SAPLMA / SVD & 0.385 & 0.714 & 0.509 & 0.508 \\
+    Attn. / SVD & 0.349 & 0.704 & 0.491 & 0.498 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption{Mean over the ten detector pairs, pooled.}
+  \footnotesize
+  \begin{tabular}{l c c c c}
+    \hline
+    Model & $\kappa$ & Agreement & Pearson $r$ & Spearman $\rho$ \\
+    \hline
+    Qwen3-14B & 0.448 & 0.748 & 0.606 & 0.599 \\
+    Gemma3-12B-it & 0.538 & 0.780 & 0.695 & 0.691 \\
+    Gemma3-4B-it & 0.559 & 0.780 & 0.720 & 0.717 \\
+    Llama3.2-3B-it & 0.267 & 0.647 & 0.384 & 0.385 \\
+    Llama3.2-3B & 0.492 & 0.746 & 0.659 & 0.662 \\
+    Gemma3-12B & 0.460 & 0.740 & 0.616 & 0.632 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+Pearson and Spearman never differ by more than $0.02$ in any cell, so the
+detectors' scores are monotonically related and none is a rescaling of another. Raw
+agreement is a misleading summary on its own, and CoQA shows why: there the detectors
+agree on 82--91\% of decisions while $\kappa$ falls to 0.04--0.15. With a base rate near
+13\%, both mostly predict ``not hallucinated'' and match by default. $\kappa$ removes that
+and shows near-independence, so reporting agreement alone would invert the conclusion.
+
+\subsection{Agreement by dataset}
+
+\begin{table}[h]
+  \centering
+  \caption{Mean $\kappa$ over the ten detector pairs, per dataset. Pooling inflates
+  agreement: the four datasets have different base rates and every detector shifts
+  with them, so part of the pooled figure is agreement about which corpus an item
+  came from. The per-dataset columns are the ones to read.}
+  \footnotesize
+  \begin{tabular}{l c c c c c}
+    \hline
+    Model & Pooled & TriviaQA & NQ-Open & SQuAD v2 & CoQA \\
+    \hline
+    Qwen3-14B & 0.448 & 0.444 & 0.432 & 0.358 & 0.130 \\
+    Gemma3-12B-it & 0.538 & 0.473 & 0.460 & 0.422 & 0.123 \\
+    Gemma3-4B-it & 0.559 & 0.428 & 0.452 & 0.399 & 0.062 \\
+    Llama3.2-3B-it & 0.267 & 0.280 & 0.220 & 0.248 & 0.149 \\
+    Llama3.2-3B & 0.492 & 0.282 & 0.237 & 0.232 & 0.042 \\
+    Gemma3-12B & 0.460 & 0.233 & 0.184 & 0.284 & 0.059 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\subsection{Agreement among the vote rules}
+
+\begin{table}[h]
+  \centering
+  \caption{The three vote rules against each other, pooled. These pairs are not
+  definitional: the rules are siblings built from the same five detectors, not
+  nested inside one another.}
+  \footnotesize
+  \begin{tabular}{l c c c c c c}
+    \hline
+    & \multicolumn{2}{c}{V-hard / V-rank} & \multicolumn{2}{c}{V-hard / V-soft} & \multicolumn{2}{c}{V-rank / V-soft} \\
+    \cline{2-3}\cline{4-5}\cline{6-7}
+    Model & $\kappa$ & $\rho$ & $\kappa$ & $\rho$ & $\kappa$ & $\rho$ \\
+    \hline
+    Qwen3-14B & 0.864 & 0.917 & 0.863 & 0.924 & 0.909 & 0.990 \\
+    Gemma3-12B-it & 0.875 & 0.930 & 0.875 & 0.938 & 0.943 & 0.996 \\
+    Gemma3-4B-it & 0.882 & 0.944 & 0.880 & 0.947 & 0.947 & 0.998 \\
+    Llama3.2-3B-it & 0.770 & 0.908 & 0.728 & 0.896 & 0.817 & 0.974 \\
+    Llama3.2-3B & 0.859 & 0.942 & 0.839 & 0.939 & 0.909 & 0.996 \\
+    Gemma3-12B & 0.852 & 0.931 & 0.846 & 0.933 & 0.918 & 0.991 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+The three rules are close to interchangeable. V-rank and V-soft reach
+$\kappa=0.82$--$0.95$ and $\rho=0.97$--$0.998$; V-hard is the most distinct of the three,
+which is expected since it discards the scores entirely.
+
+\subsection{Voter ablation: cost of removal and marginal contribution}
+
+Two quantities per voter. \emph{Remove} is the full five-voter vote minus that
+voter: the cost of dropping it from a deployed ensemble. \emph{Shapley} is its mean
+marginal contribution over all 16 coalitions that exclude it; with five players this is
+exact rather than sampled, so the five values sum to the full vote's score, which holds in
+every cell and validates the enumeration. The two disagree whenever a voter is redundant
+with another: a voter can be cheap to remove, because a near-duplicate covers for it, and
+still contribute substantially across the subsets where that duplicate is absent.
+
+\begin{table}[h]
+  \centering
+  \caption{Soft voting, pooled, averaged over the six models.}
+  \footnotesize
+  \begin{tabular}{l c c c c}
+    \hline
+    & \multicolumn{2}{c}{MCC} & \multicolumn{2}{c}{AUROC} \\
+    \cline{2-3}\cline{4-5}
+    Voter & remove & Shapley & remove & Shapley \\
+    \hline
+    SAPLMA & $+0.0295$ & $+0.1416$ & $+0.0155$ & $+0.1866$ \\
+    LapEig. & $+0.0092$ & $+0.1152$ & $+0.0076$ & $+0.1785$ \\
+    ICR & $-0.0015$ & $+0.0854$ & $+0.0002$ & $+0.1590$ \\
+    Attn. & $+0.0026$ & $+0.0949$ & $+0.0014$ & $+0.1626$ \\
+    SVD & $+0.0003$ & $+0.0747$ & $-0.0011$ & $+0.1499$ \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption{Per-model detail, soft voting, pooled MCC. Voters ordered by Shapley
+  value within each model.}
+  \footnotesize
+  \begin{tabular}{l l c c c c}
+    \hline
+    Model & Voter & full & without & remove & Shapley \\
+    \hline
+    Qwen3-14B & SAPLMA & 0.5349 & 0.4978 & $+0.0372$ & $+0.1536$ \\
+     & LapEig. & 0.5349 & 0.5285 & $+0.0064$ & $+0.1186$ \\
+     & Attn. & 0.5349 & 0.5321 & $+0.0028$ & $+0.1019$ \\
+     & ICR & 0.5349 & 0.5382 & $-0.0033$ & $+0.0878$ \\
+     & SVD & 0.5349 & 0.5328 & $+0.0021$ & $+0.0729$ \\
+    \hline
+    Gemma3-12B-it & SAPLMA & 0.5793 & 0.5544 & $+0.0249$ & $+0.1482$ \\
+     & LapEig. & 0.5793 & 0.5663 & $+0.0130$ & $+0.1283$ \\
+     & Attn. & 0.5793 & 0.5747 & $+0.0047$ & $+0.1068$ \\
+     & SVD & 0.5793 & 0.5741 & $+0.0052$ & $+0.1050$ \\
+     & ICR & 0.5793 & 0.5824 & $-0.0030$ & $+0.0911$ \\
+    \hline
+    Gemma3-4B-it & SAPLMA & 0.5622 & 0.5363 & $+0.0260$ & $+0.1519$ \\
+     & Attn. & 0.5622 & 0.5592 & $+0.0030$ & $+0.1138$ \\
+     & LapEig. & 0.5622 & 0.5630 & $-0.0007$ & $+0.1069$ \\
+     & ICR & 0.5622 & 0.5641 & $-0.0019$ & $+0.1004$ \\
+     & SVD & 0.5622 & 0.5645 & $-0.0022$ & $+0.0892$ \\
+    \hline
+    Llama3.2-3B-it & SAPLMA & 0.3947 & 0.3432 & $+0.0515$ & $+0.1482$ \\
+     & LapEig. & 0.3947 & 0.3856 & $+0.0091$ & $+0.0924$ \\
+     & Attn. & 0.3947 & 0.3982 & $-0.0035$ & $+0.0634$ \\
+     & ICR & 0.3947 & 0.3940 & $+0.0008$ & $+0.0568$ \\
+     & SVD & 0.3947 & 0.4026 & $-0.0079$ & $+0.0340$ \\
+    \hline
+    Llama3.2-3B & SAPLMA & 0.5057 & 0.4822 & $+0.0235$ & $+0.1297$ \\
+     & LapEig. & 0.5057 & 0.4944 & $+0.0113$ & $+0.1178$ \\
+     & Attn. & 0.5057 & 0.4998 & $+0.0059$ & $+0.0946$ \\
+     & ICR & 0.5057 & 0.5068 & $-0.0011$ & $+0.0889$ \\
+     & SVD & 0.5057 & 0.5014 & $+0.0043$ & $+0.0747$ \\
+    \hline
+    Gemma3-12B & LapEig. & 0.4934 & 0.4771 & $+0.0163$ & $+0.1268$ \\
+     & SAPLMA & 0.4934 & 0.4793 & $+0.0141$ & $+0.1180$ \\
+     & Attn. & 0.4934 & 0.4908 & $+0.0026$ & $+0.0886$ \\
+     & ICR & 0.4934 & 0.4942 & $-0.0008$ & $+0.0875$ \\
+     & SVD & 0.4934 & 0.4928 & $+0.0006$ & $+0.0724$ \\
+    \hline
+  \end{tabular}
+\end{table}
+
+Only SAPLMA is expensive to remove, at $+0.0295$ MCC on average; every other
+voter costs between $-0.0015$ and $+0.0092$. On Gemma3-12B (base) LapEigVals is costlier
+than SAPLMA ($+0.0163$ against $+0.0141$), the one model where SAPLMA is not the strongest
+single detector. In 9 of the 30 model$\times$voter cells the remove cost is
+non-positive: dropping that voter leaves the ensemble no worse. ICR is the clearest case
+of the two measures disagreeing --- its mean remove cost is $-0.0015$ while its Shapley
+value is $+0.0854$, so it contributes when SAPLMA is absent and contributes nothing when
+SAPLMA is present.
