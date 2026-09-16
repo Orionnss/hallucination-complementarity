@@ -1,0 +1,83 @@
+\paragraph{Agreement on Another Detector's Errors:}
+\tablename~\ref{tab:conditional_kappa} restricts each detector to the items another
+detector got wrong and measures its agreement with the judge label there. This asks the
+question combination depends on: when the strongest detector fails, does any other one
+still know the answer? The observed values are almost all negative, but they cannot be
+read against zero. Conditioning on one detector's errors is collider conditioning, so any
+detector correlated with the first looks poor on that slice regardless of its own quality,
+and the slice's class balance shifts, which moves every metric by itself. We therefore
+pair each cell with a null obtained by permuting the evaluated detector within each class,
+preserving its per-class accuracy and score distribution exactly while destroying any
+dependence on the first detector. An equally strong but independent detector scores
+$\kappa \in [0.16, 0.55]$ on these slices, not $0$. Against that reference the observed
+values are far worse than they appear: averaged over the 20 ordered pairs in each model,
+the gap is $-0.504$ in $\kappa$ and $-0.592$ in Pearson $r$
+(\tablename~\ref{tab:conditional_gap}), and \emph{no} pair in any model on any of the four
+metrics reaches its null --- the least damaged cell across all 120 pairs still falls
+$0.175$ short in $\kappa$. The four metrics agree, which was not guaranteed: $\kappa$ and
+agreement use the thresholded decisions while Pearson and Spearman use the continuous
+scores, so a detector could in principle rank the error slice well and merely threshold it
+badly. It does not. Pearson and Spearman are within $0.023$ of each other throughout, so
+the relationship is monotone and no non-linear score mapping conceals the redundancy. The
+ordering of rows is the substantive result: SVD, the weakest detector, has the most
+recoverable errors in five of six models, while SAPLMA or LapEigVals --- the two
+strongest --- have the least recoverable in all six. Failures concentrate where the
+detectors are strongest, which is the accuracy--independence tradeoff measured directly
+rather than inferred from aggregate performance.
+
+\begin{table}[t]
+  \centering
+  \caption{Cohen's $\kappa$ between a detector's decision and the judge label,
+  restricted to the items another detector got wrong, on Qwen3-14B pooled. Rows
+  index the detector whose errors define the slice, columns the detector being
+  evaluated on it; the matrix is asymmetric and the diagonal is undefined, since
+  no detector rescues its own errors. \emph{Null} is the same cell with the
+  evaluated detector permuted within each class, which preserves its per-class
+  accuracy and score distribution while removing any dependence on the first
+  detector. Every observed value falls below its own null.}
+  \label{tab:conditional_kappa}
+  \footnotesize
+  \begin{tabular}{l c c c c c}
+    \hline
+    Errors of & SAPLMA & LapEig. & ICR & Attn. & SVD \\
+    \hline
+    \multicolumn{6}{l}{\itshape observed} \\
+    SAPLMA & -- & $-0.123$ & $-0.111$ & $-0.103$ & $-0.102$ \\
+    LapEig. & $-0.090$ & -- & $-0.226$ & $-0.209$ & $-0.129$ \\
+    ICR & $+0.050$ & $-0.081$ & -- & $-0.054$ & $-0.117$ \\
+    Attn. & $+0.015$ & $-0.120$ & $-0.105$ & -- & $-0.033$ \\
+    SVD & $+0.154$ & $+0.106$ & $-0.004$ & $+0.116$ & -- \\
+    \hline
+    \multicolumn{6}{l}{\itshape independence null} \\
+    SAPLMA & -- & $0.470$ & $0.396$ & $0.434$ & $0.334$ \\
+    LapEig. & $0.499$ & -- & $0.411$ & $0.432$ & $0.341$ \\
+    ICR & $0.491$ & $0.476$ & -- & $0.439$ & $0.342$ \\
+    Attn. & $0.501$ & $0.471$ & $0.411$ & -- & $0.342$ \\
+    SVD & $0.499$ & $0.477$ & $0.410$ & $0.437$ & -- \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\begin{table}[t]
+  \centering
+  \caption{Observed minus null, averaged over the 20 ordered detector pairs in
+  each model. All four metrics are computed on the same slices: $\kappa$ and
+  agreement on the decisions, Pearson $r$ and Spearman $\rho$ on the continuous
+  scores. No pair in any model on any metric reaches its null.}
+  \label{tab:conditional_gap}
+  \footnotesize
+  \begin{tabular}{l c c c c}
+    \hline
+    Model & $\Delta\kappa$ & $\Delta$agree & $\Delta r$ & $\Delta\rho$ \\
+    \hline
+    Qwen3-14B & $-0.489$ & $-0.243$ & $-0.574$ & $-0.572$ \\
+    Gemma3-12B-it & $-0.598$ & $-0.300$ & $-0.685$ & $-0.680$ \\
+    Gemma3-4B-it & $-0.637$ & $-0.319$ & $-0.738$ & $-0.734$ \\
+    Llama3.2-3B-it & $-0.278$ & $-0.144$ & $-0.328$ & $-0.327$ \\
+    Llama3.2-3B & $-0.535$ & $-0.278$ & $-0.643$ & $-0.637$ \\
+    Gemma3-12B & $-0.489$ & $-0.262$ & $-0.584$ & $-0.581$ \\
+    \hline
+    \textit{all 120 pairs} & $\mathbf{-0.504}$ & $\mathbf{-0.257}$ & $\mathbf{-0.592}$ & $\mathbf{-0.588}$ \\
+    \hline
+  \end{tabular}
+\end{table}
