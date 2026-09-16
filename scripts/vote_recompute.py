@@ -29,10 +29,12 @@ learned stacker can launder extra capacity as a gain, a vote cannot.
   vote_rank        mean of within-method ranks, thresholded once
 
 Only vote_soft and vote_rank have a free parameter, and it is the one place cross
-validation still has work to do: the threshold is picked by grouped 5-fold cross-fitting
-over the out-of-fold scores, averaging the per-fold optima, so no item's own fold sets the
-threshold it is scored under. The hard variants need no threshold -- the five constituent
-thresholds were already set inside stage 3's inner splits.
+validation still has work to do: each fold's threshold is fitted on the other four folds
+and applied to that fold alone, so no item is scored under a threshold that has seen its
+label. The hard variants need no threshold -- the five constituent thresholds were already
+set inside stage 3's inner splits, which also makes them the only combiners strictly
+comparable with the individual detectors, since those do not get a refitted threshold
+either.
 
 `best_single` is chosen per seed on POOLED MCC and then reported on every dataset with
 that choice held fixed. Picking the best method separately in each dataset column would

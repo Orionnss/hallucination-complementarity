@@ -50,14 +50,24 @@ OTHERS = ["lapeigvals", "attn_baseline", "icr", "svd_baseline", "charm", "logpro
 RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b"]
 
 
-def tuned_threshold(y, s, groups, seed):
-    picks = []
-    for tr, _ in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(
+def cross_fit_predict(y, s, groups, seed):
+    """Threshold each fold on the other four, over the FULL population.
+
+    Two separate guards, easy to confuse. The threshold is fitted on the full population
+    and never on the error slice, because at deployment you do not know which items SAPLMA
+    got wrong -- that is what the module docstring describes. Independently of that, the
+    fold a threshold is applied to must be excluded from fitting it: the previous form
+    averaged the five per-fold optima and applied that value to every item, so each item's
+    label had entered four of the five optima. The leak was worth about +0.0035 pooled MCC
+    where it was measured.
+    """
+    pred = np.zeros(len(y), dtype=int)
+    for tr, te in StratifiedGroupKFold(5, shuffle=True, random_state=seed).split(
             s.reshape(-1, 1), y, groups):
         grid = np.unique(np.quantile(s[tr], np.linspace(0.02, 0.98, 60)))
-        picks.append(max(grid, key=lambda t: matthews_corrcoef(
-            y[tr], (s[tr] >= t).astype(int))))
-    return float(np.mean(picks))
+        thr = max(grid, key=lambda t: matthews_corrcoef(y[tr], (s[tr] >= t).astype(int)))
+        pred[te] = (s[te] >= thr).astype(int)
+    return pred
 
 
 def main() -> None:
@@ -86,7 +96,7 @@ def main() -> None:
                            ("vote_rank", np.mean([rankdata(S[m]) / len(y)
                                                   for m in OTHERS], axis=0))):
                 # threshold from the full population, not the error slice
-                cand[nm] = ((sc >= tuned_threshold(y, sc, groups, si)).astype(int), sc)
+                cand[nm] = (cross_fit_predict(y, sc, groups, si), sc)
 
             pops = {"SAPLMA wrong (all)": wrong,
                     "  its false positives": wrong & (sap == 1),
