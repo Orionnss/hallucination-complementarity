@@ -73,11 +73,11 @@ minutes each once stage 3 has run.
 | 3 | Average pairwise Pearson r between voters | `pairwise_correlations.py` | `runs/pairwise_correlations.json` |
 | 4 | Kappa on another detector's errors, with the independence null | `conditional_correlations.py` | `runs/conditional_correlations.json` |
 | 5 | Observed minus null, averaged over the 20 ordered pairs | `conditional_correlations.py` | `runs/conditional_correlations.json` |
-| 6 | AUROC and MCC at 1 vs 4 voters | **no script on this branch, see below** | |
+| 6 | AUROC and MCC at 1 vs 4 voters | not produced by any script here | |
 | 7 | What predicts a combination's score and its gain | `voter_ablation.py` + `pairwise_correlations.py` | `runs/voter_ablation.json` |
 | 8 | Spread illustrated on Qwen3-14B | `voter_ablation.py` | `runs/voter_ablation.json` |
 | 9-11 | Four metrics, means per generator, means per dataset | `pairwise_correlations.py` | `runs/pairwise_correlations.json` |
-| 12-14 | *duplicates of 9-11, see below* | | |
+| 12-14 | Duplicates of Tables 9-11 | `pairwise_correlations.py` | `runs/pairwise_correlations.json` |
 | 15 | The three vote rules against each other | `pairwise_correlations.py` | `runs/pairwise_correlations.json` |
 | 16-17 | Removal cost and Shapley value, overall and per model | `voter_marginal.py` | `runs/voter_marginal.json` |
 | 18 | All 31 subsets, averaged over generators | `voter_ablation.py` | `runs/voter_ablation.json` |
@@ -100,26 +100,3 @@ its analysis and reading the numbers from the JSON or CSV.
 | `appendix_voters.tex` | 18, 19 |
 | `appendix_quality_gain.tex` | 20-23 |
 | `alg_vote.tex` | Algorithms 1-2 and the instantiation table |
-
-## Two issues in the current draft
-
-**Table 6 is not reproducible from this code.** It reports four model configurations
-(Llama3.2 3B, Llama3.2 3B-it, Qwen3 4B, Qwen3 4B-it) that are not among the six generators
-used everywhere else in the paper, and no script here produces it. It appears to survive from
-an earlier version of the work. The claim in the surrounding text, that gains are largest
-when individual voters are already strong, is also contradicted by Table 7: the rank
-correlation between voter quality and gain is negative.
-
-**Tables 12-14 duplicate Tables 9-11.** `appendix_correlation.tex` is included twice.
-
-## Not on this branch
-
-CHARM, the PCA+logreg reader sweeps, tuned-MLP and PCA-width variants, PLS and supervised
-reduction, layer ablations, mixture-of-dataset-experts, cross-dataset transfer,
-risk-coverage, the label audit and the learning curves. All are on `main`.
-
-Two items could not be removed without editing source. `build_detectors` in
-`src/halluc/detectors.py` still registers `union_raw` and `union_equal`, so stage 3 trains
-them and writes their columns; no analysis here reads them. `config.py` keeps a
-`CharmConfig` dataclass and `stage4_analysis` probes for a stage-6 predictions file, both
-inert once stage 6 is absent. Pass `--no-charm` to stage 4 to skip the lookup.
