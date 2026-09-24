@@ -1,0 +1,129 @@
+\section{Voter quality and ensemble gain}
+\label{sec:appendix:quality_gain}
+
+Each subset of size $k \ge 2$ is characterised by the published quality of its members
+and by their mutual redundancy, and these are correlated against two outcomes: the
+subset's absolute soft-vote score, and its \emph{gain} over the strongest member it
+contains. Quality is the member's own published figure --- MCC from its stored decision,
+AUROC from its continuous score --- so the predictor is always in the same units as the
+outcome it is compared with. Redundancy is the mean pairwise Cohen's $\kappa$ among the
+subset's members. There are 156 subsets per metric ($26$ per generator $\times$ $6$
+generators); each cell reports Spearman $\rho$ followed by Pearson $r$.
+
+The two outcomes behave differently, and separating them is the point of this appendix: a
+subset's absolute score is largely fixed by its best member, whereas what little variation
+there is in the \emph{increment} over that member is governed by something else entirely.
+
+\subsection{Predictors of gain over the best member}
+
+\begin{table}[h]\centering\footnotesize
+  \caption{Correlation with $\mathrm{gain} = \mathrm{ensemble} - \max_k q_k$, pooled
+  over all 156 subsets. Only the spread of member quality carries appreciable signal.}
+  \begin{tabular}{l c c c c}
+    \hline
+    & \multicolumn{2}{c}{MCC gain} & \multicolumn{2}{c}{AUROC gain} \\
+    \cline{2-3}\cline{4-5}
+    Predictor & $\rho$ & $r$ & $\rho$ & $r$ \\
+    \hline
+    best member & $-0.042$ & $-0.080$ & $-0.274$ & $-0.278$ \\
+    mean member & $+0.035$ & $+0.069$ & $-0.118$ & $-0.132$ \\
+    weakest member & $+0.075$ & $+0.119$ & $-0.038$ & $-0.071$ \\
+    \textbf{spread (sd) of member quality} & $\mathbf{-0.430}$ & $\mathbf{-0.442}$ & $\mathbf{-0.369}$ & $\mathbf{-0.346}$ \\
+    mean pairwise $\kappa$ & $-0.066$ & $+0.045$ & $-0.115$ & $-0.116$ \\
+    number of voters $k$ & $+0.216$ & $+0.205$ & $+0.314$ & $+0.301$ \\
+    \hline\end{tabular}\end{table}
+
+The pooled coefficients for the quality \emph{levels} should not be quoted, because
+their sign is not stable across generators: gain against best-member quality runs from
+$+0.588$ on Qwen3-14B to $-0.807$ on Gemma3-4B-it, so the pooled value averages opposed
+within-model trends. The spread result does survive that check, being negative in five of
+six generators with the sixth essentially zero.
+
+\subsection{Predictors of absolute ensemble performance}
+
+\begin{table}[h]\centering\footnotesize
+  \caption{Correlation with the subset's soft-vote score. Pooling the six generators
+  inflates these: both predictor and outcome are high on the easier models and low on
+  the harder ones, so much of the association is between-model rather than
+  between-subset. The within-generator means are the figures to rely on.}
+  \begin{tabular}{l c c c c}
+    \hline
+    & \multicolumn{2}{c}{MCC} & \multicolumn{2}{c}{AUROC} \\
+    \cline{2-3}\cline{4-5}
+    Predictor & $\rho$ & $r$ & $\rho$ & $r$ \\
+    \hline
+    \multicolumn{5}{l}{\itshape pooled over all generators} \\
+    best member & $+0.963$ & $+0.980$ & $+0.968$ & $+0.982$ \\
+    mean member & $+0.942$ & $+0.963$ & $+0.948$ & $+0.959$ \\
+    mean pairwise $\kappa$ & $+0.814$ & $+0.886$ & $+0.766$ & $+0.864$ \\
+    number of voters $k$ & $+0.234$ & $+0.197$ & $+0.240$ & $+0.220$ \\
+    \hline
+    \multicolumn{5}{l}{\itshape mean over the six within-generator correlations} \\
+    best member & $+0.804$ & $+0.897$ & $+0.809$ & $+0.890$ \\
+    mean member & $+0.678$ & $+0.747$ & $+0.711$ & $+0.778$ \\
+    mean pairwise $\kappa$ & $+0.501$ & $+0.485$ & $+0.563$ & $+0.572$ \\
+    number of voters $k$ & $+0.591$ & $+0.533$ & $+0.594$ & $+0.553$ \\
+    \hline\end{tabular}\end{table}
+
+\begin{table}[h]\centering\footnotesize
+  \caption{Best-member quality against absolute ensemble score, per generator.}
+  \begin{tabular}{l c c c}
+    \hline
+    Model & $n$ & $\rho$ (MCC) & $\rho$ (AUROC) \\
+    \hline
+    Qwen3-14B & 26 & $+0.888$ & $+0.862$ \\
+    Gemma3-12B-it & 26 & $+0.867$ & $+0.835$ \\
+    Gemma3-4B-it & 26 & $+0.880$ & $+0.876$ \\
+    Llama3.2-3B-it & 26 & $+0.888$ & $+0.888$ \\
+    Llama3.2-3B & 26 & $+0.515$ & $+0.573$ \\
+    Gemma3-12B & 26 & $+0.786$ & $+0.818$ \\
+    \hline
+    \textit{mean within-generator} & & $\mathbf{+0.804}$ & $\mathbf{+0.809}$ \\
+    \textit{pooled} & 156 & $+0.963$ & $+0.968$ \\
+    \hline\end{tabular}\end{table}
+
+An ensemble's score is therefore largely determined by its strongest constituent,
+at $\rho \approx 0.80$ within a generator rather than the $\rho \approx 0.96$ the
+pooled figure suggests. The association with mean pairwise $\kappa$ is a corollary rather
+than an independent effect: redundancy and strength travel together in this pool, so
+redundant subsets score well without redundancy contributing anything.
+
+\subsection{What spread measures}
+
+Spread is the standard deviation of the members' published MCC within a single
+subset, so it measures how evenly matched the voters are rather than how good they are. A
+low spread indicates members of comparable strength; a high spread indicates one strong
+detector accompanied by weaker ones.
+
+\begin{table}[h]\centering\footnotesize
+  \caption{Worked example on Qwen3-14B, whose five detectors score SAPLMA $0.483$,
+  LapEigvals $0.468$, Attn.\ $0.427$, ICR $0.398$ and SVD $0.332$.}
+  \begin{tabular}{l l c c c}
+    \hline
+    Subset & Member MCCs & Spread & Ensemble & Gain \\
+    \hline
+    SAPLMA+LapEig. & 0.483, 0.468 & 0.0072 & 0.5378 & $+0.0551$ \\
+    LapEig.+Attn. & 0.468, 0.426 & 0.0209 & 0.4857 & $+0.0175$ \\
+    SAPLMA+Attn. & 0.483, 0.426 & 0.0281 & 0.5271 & $+0.0444$ \\
+    SAPLMA+ICR & 0.483, 0.398 & 0.0424 & 0.5230 & $+0.0403$ \\
+    SAPLMA+SVD & 0.483, 0.332 & 0.0752 & 0.5217 & $+0.0391$ \\
+    SAPLMA+LapEig.+Attn. & 0.483, 0.468, 0.426 & 0.0238 & 0.5353 & $+0.0526$ \\
+    SAPLMA+ICR+SVD & 0.483, 0.398, 0.332 & 0.0616 & 0.5224 & $+0.0397$ \\
+    \hline\end{tabular}\end{table}
+
+Spread is correlated with the weakest member's quality at $\rho =
+-0.605$, which raises the objection that it is merely a proxy
+for containing a weak detector. That objection does not hold. The weakest member's quality
+on its own correlates with gain at only $\rho = +0.075$, and when
+gain and spread are both residualised on it the partial correlation \emph{strengthens},
+from $\rho = -0.430$ to $\rho =
+-0.466$. What matters is the mismatch
+between voters rather than the presence of a weak one, which is also why the correlation is
+around $-0.43$ rather than near $-0.9$: LapEigvals$+$Attn.\ combines low spread with low
+gain and is a genuine counterexample.
+
+The mechanism is the ordinary ensembling argument. Soft voting averages with equal weight,
+so a substantially weaker member pulls the mean toward its own errors and the combination
+spends its capacity recovering ground the strongest member already held, whereas matched
+members allow independent errors to cancel. This is one of the few places in this study
+where that argument partially holds, and the effect remains small in absolute terms.

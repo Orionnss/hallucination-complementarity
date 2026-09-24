@@ -1,0 +1,63 @@
+\paragraph{Voter Quality and Ensemble Gains:}
+Characterising each subset by the published quality of its members and by their mutual
+redundancy separates two questions that are easily conflated, and
+Table~\ref{tab:quality_gain} reports both. A subset's absolute score is largely fixed by its
+strongest constituent: the rank correlation between the best member's published figure and
+the combination's is $\rho = +0.80$ on MCC and $+0.81$ on AUROC, computed within each
+generator and averaged, against only $\rho = +0.59$ for the number of voters. To anticipate
+how a combination will perform it therefore suffices to know which detector in it is best.
+The \emph{increment} over that member is a different matter, and most candidate explanations
+fail not because their coefficients are small but because their sign is unstable: quality
+levels and pairwise $\kappa$ each agree in sign on only three or four of the six generators,
+so their averages should not be read as effects. The one predictor negative in all six is
+the \emph{spread} of member quality, the standard deviation of the members' published
+scores, at $\rho = -0.50$ on MCC and $-0.56$ on AUROC: subsets whose members are evenly
+matched gain more from combining than subsets pairing one strong detector with weaker ones.
+That relationship is not a proxy for containing a weak member, since the weakest member's
+quality barely predicts gain on its own ($\rho = +0.04$) and the partial correlation
+strengthens to $-0.47$ once it is controlled for. Table~\ref{tab:spread_example} shows the
+effect directly --- holding SAPLMA fixed and varying its partner, gain falls from $+0.055$ to
+$+0.039$ as the spread widens --- and it is the one place in this study where the standard
+variance-reduction argument for ensembling partially holds, at a magnitude that leaves the
+best member's own score doing almost all the work.
+
+\begin{table}[t]\centering\footnotesize
+  \caption{What predicts a combination's score, and what predicts its gain over the
+  strongest member it contains. Spearman $\rho$ computed within each generator and
+  averaged over the six; \emph{agree} counts how many generators share the sign of
+  that mean, so a low count marks a coefficient whose mean is not a fair summary.
+  For the first row the pooled coefficient is given in brackets, to show how much
+  combining generators of differing difficulty inflates it. Quality is each member's
+  published figure, in the same units as the outcome. Appendix
+  \ref{sec:appendix:quality_gain} gives the full breakdown.}
+  \label{tab:quality_gain}
+  \begin{tabular}{l c c c c c}
+    \hline
+    & \multicolumn{2}{c}{vs.\ absolute score} & \multicolumn{3}{c}{vs.\ gain} \\
+    \cline{2-3}\cline{4-6}
+    Predictor & MCC & AUROC & MCC & AUROC & agree \\
+    \hline
+    best member quality & $+0.80$ ($+0.96$) & $+0.81$ ($+0.97$) & $-0.28$ & $-0.23$ & 4/6 \\
+    mean member quality & $+0.68$ & $+0.71$ & $-0.16$ & $-0.01$ & 4/6 \\
+    weakest member quality & $+0.20$ & $+0.28$ & $+0.04$ & $+0.15$ & 4/6 \\
+    \textbf{spread of member quality} & $+0.31$ & $+0.20$ & $\mathbf{-0.50}$ & $\mathbf{-0.56}$ & \textbf{6/6} \\
+    mean pairwise $\kappa$ & $+0.50$ & $+0.56$ & $-0.15$ & $-0.05$ & 3/6 \\
+    number of voters & $+0.59$ & $+0.59$ & $+0.27$ & $+0.31$ & 5/6 \\
+    \hline\end{tabular}\end{table}
+
+\begin{table}[t]\centering\footnotesize
+  \caption{Spread illustrated on Qwen3-14B, whose members score SAPLMA $0.483$,
+  LapEig.\ $0.468$, Attn.\ $0.427$, ICR $0.398$ and SVD $0.332$. Gain is measured
+  against the best member of that subset, so the first four rows share a baseline
+  and differ only in the partner added; the last does not contain SAPLMA.}
+  \label{tab:spread_example}
+  \begin{tabular}{l c c c}
+    \hline
+    Subset & Spread & Soft vote & Gain \\
+    \hline
+    SAPLMA+LapEig. & 0.007 & 0.538 & $+0.055$ \\
+    SAPLMA+Attn. & 0.028 & 0.527 & $+0.044$ \\
+    SAPLMA+ICR & 0.042 & 0.523 & $+0.040$ \\
+    SAPLMA+SVD & 0.075 & 0.522 & $+0.039$ \\
+    LapEig.+Attn. & 0.021 & 0.486 & $+0.017$ \\
+    \hline\end{tabular}\end{table}

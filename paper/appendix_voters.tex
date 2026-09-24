@@ -1,0 +1,201 @@
+\section{Voter-count ablation}
+\label{sec:appendix:voters}
+
+Every subset of the five detectors is evaluated under the three voting rules, giving
+$2^5-1 = 31$ combinations per rule, per generator, per dataset. All figures are pooled over
+the four QA datasets, averaged over 5 seeds, and computed on stage~3's stored out-of-fold
+predictions --- each detector under its own published probe, with nothing refitted.
+
+The $k{=}1$ rows are the detectors' published figures: MCC from the stored decision, which
+uses that detector's own published threshold, and AUROC from its continuous score. This is
+not what the voting code produces at $k{=}1$, and the difference matters. Soft and rank
+voting re-threshold the single detector by the rule the combiners use, which raises
+SAPLMA's pooled MCC on Qwen3-14B from $0.4827$ to $0.5089$; hard voting keeps the published
+threshold but computes AUROC from a binary vector, giving $0.7497$ instead of $0.8357$.
+Taking $k{=}1$ from stage~3 directly avoids both artefacts, so the $k{=}1 \rightarrow k{=}2$
+step measures the effect of adding a voter rather than the effect of changing the threshold
+rule.
+
+\subsection{Mean over subsets of each size}
+
+\begin{table}[h]\centering\footnotesize
+  \caption{Mean over all $\binom{5}{k}$ subsets of size $k$, pooled. $k{=}1$ is the
+  mean of the five published detectors.}
+  \begin{tabular}{l l c c c c c}
+    \hline
+    Model & Rule & $k{=}1$ & $k{=}2$ & $k{=}3$ & $k{=}4$ & $k{=}5$ \\
+    \hline
+    \multicolumn{7}{l}{\itshape MCC} \\
+    Qwen3-14B & soft & 0.421 & 0.492 & 0.515 & 0.526 & 0.535 \\
+     & rank & 0.421 & 0.484 & 0.503 & 0.516 & 0.525 \\
+     & hard & 0.421 & 0.445 & 0.490 & 0.497 & 0.515 \\
+    Gemma3-12B-it & soft & 0.485 & 0.540 & 0.562 & 0.570 & 0.579 \\
+     & rank & 0.485 & 0.537 & 0.556 & 0.566 & 0.572 \\
+     & hard & 0.485 & 0.501 & 0.540 & 0.544 & 0.556 \\
+    Gemma3-4B-it & soft & 0.478 & 0.530 & 0.547 & 0.557 & 0.562 \\
+     & rank & 0.478 & 0.525 & 0.543 & 0.552 & 0.556 \\
+     & hard & 0.478 & 0.491 & 0.529 & 0.533 & 0.543 \\
+    Llama3.2-3B-it & soft & 0.259 & 0.332 & 0.362 & 0.385 & 0.395 \\
+     & rank & 0.259 & 0.313 & 0.344 & 0.365 & 0.379 \\
+     & hard & 0.259 & 0.280 & 0.324 & 0.334 & 0.354 \\
+    Llama3.2-3B & soft & 0.409 & 0.470 & 0.487 & 0.497 & 0.506 \\
+     & rank & 0.409 & 0.461 & 0.480 & 0.489 & 0.496 \\
+     & hard & 0.409 & 0.428 & 0.465 & 0.473 & 0.486 \\
+    Gemma3-12B & soft & 0.391 & 0.449 & 0.471 & 0.487 & 0.493 \\
+     & rank & 0.391 & 0.444 & 0.465 & 0.477 & 0.479 \\
+     & hard & 0.391 & 0.409 & 0.450 & 0.456 & 0.470 \\
+    \hline
+    \multicolumn{7}{l}{\itshape AUROC} \\
+    Qwen3-14B & soft & 0.795 & 0.828 & 0.842 & 0.850 & 0.855 \\
+     & rank & 0.795 & 0.826 & 0.840 & 0.847 & 0.852 \\
+     & hard & 0.795 & 0.774 & 0.801 & 0.816 & 0.826 \\
+    Gemma3-12B-it & soft & 0.825 & 0.852 & 0.863 & 0.868 & 0.872 \\
+     & rank & 0.825 & 0.851 & 0.862 & 0.867 & 0.871 \\
+     & hard & 0.825 & 0.802 & 0.825 & 0.838 & 0.847 \\
+    Gemma3-4B-it & soft & 0.813 & 0.839 & 0.848 & 0.854 & 0.857 \\
+     & rank & 0.813 & 0.838 & 0.847 & 0.852 & 0.855 \\
+     & hard & 0.813 & 0.791 & 0.813 & 0.825 & 0.833 \\
+    Llama3.2-3B-it & soft & 0.692 & 0.736 & 0.758 & 0.771 & 0.779 \\
+     & rank & 0.692 & 0.730 & 0.749 & 0.761 & 0.769 \\
+     & hard & 0.692 & 0.685 & 0.712 & 0.729 & 0.740 \\
+    Llama3.2-3B & soft & 0.775 & 0.805 & 0.817 & 0.823 & 0.826 \\
+     & rank & 0.775 & 0.802 & 0.813 & 0.819 & 0.823 \\
+     & hard & 0.775 & 0.758 & 0.781 & 0.794 & 0.802 \\
+    Gemma3-12B & soft & 0.776 & 0.807 & 0.820 & 0.826 & 0.831 \\
+     & rank & 0.776 & 0.805 & 0.816 & 0.823 & 0.827 \\
+     & hard & 0.776 & 0.759 & 0.784 & 0.797 & 0.806 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\subsection{Best subset at each size}
+
+\begin{table}[h]\centering\footnotesize
+  \caption{Best subset at each $k$ under soft voting, pooled MCC.}
+  \begin{tabular}{l c c c c c c}
+    \hline
+    Model & $k{=}1$ & $k{=}2$ & $k{=}3$ & $k{=}4$ & $k{=}5$ & argmax \\
+    \hline
+    Qwen3-14B & SAP 0.483 & SAP+LAP 0.538 & SAP+LAP+ICR 0.539 & SAP+LAP+ATT+SVD 0.538 & SAP+LAP+ICR+ATT+SVD 0.535 & 3 \\
+    Gemma3-12B-it & SAP 0.531 & SAP+LAP 0.581 & SAP+LAP+SVD 0.582 & SAP+LAP+ATT+SVD 0.582 & SAP+LAP+ICR+ATT+SVD 0.579 & 4 \\
+    Gemma3-4B-it & SAP 0.550 & SAP+ATT 0.567 & SAP+LAP+ATT 0.567 & SAP+LAP+ICR+ATT 0.564 & SAP+LAP+ICR+ATT+SVD 0.562 & 2 \\
+    Llama3.2-3B-it & SAP 0.368 & SAP+LAP 0.395 & SAP+LAP+ICR 0.398 & SAP+LAP+ICR+ATT 0.403 & SAP+LAP+ICR+ATT+SVD 0.395 & 4 \\
+    Llama3.2-3B & LAP 0.460 & SAP+LAP 0.501 & SAP+LAP+ATT 0.507 & SAP+LAP+ATT+SVD 0.507 & SAP+LAP+ICR+ATT+SVD 0.506 & 3 \\
+    Gemma3-12B & LAP 0.454 & SAP+LAP 0.481 & SAP+LAP+ICR 0.492 & SAP+LAP+ATT+SVD 0.494 & SAP+LAP+ICR+ATT+SVD 0.493 & 4 \\
+    \hline\end{tabular}\end{table}
+
+\begin{table}[h]\centering\footnotesize
+  \caption{Best subset at each $k$ under soft voting, pooled AUROC.}
+  \begin{tabular}{l c c c c c c}
+    \hline
+    Model & $k{=}1$ & $k{=}2$ & $k{=}3$ & $k{=}4$ & $k{=}5$ & argmax \\
+    \hline
+    Qwen3-14B & SAP 0.836 & SAP+LAP 0.855 & SAP+LAP+ATT 0.855 & SAP+LAP+ICR+ATT 0.855 & SAP+LAP+ICR+ATT+SVD 0.855 & 4 \\
+    Gemma3-12B-it & SAP 0.851 & SAP+LAP 0.873 & SAP+LAP+SVD 0.874 & SAP+LAP+ATT+SVD 0.874 & SAP+LAP+ICR+ATT+SVD 0.872 & 3 \\
+    Gemma3-4B-it & SAP 0.846 & SAP+LAP 0.856 & SAP+LAP+ATT 0.859 & SAP+LAP+ICR+ATT 0.859 & SAP+LAP+ICR+ATT+SVD 0.857 & 4 \\
+    Llama3.2-3B-it & SAP 0.753 & SAP+LAP 0.777 & SAP+LAP+ICR 0.779 & SAP+LAP+ICR+ATT 0.779 & SAP+LAP+ICR+ATT+SVD 0.779 & 4 \\
+    Llama3.2-3B & LAP 0.803 & SAP+LAP 0.826 & SAP+LAP+ICR 0.828 & SAP+LAP+ICR+ATT 0.829 & SAP+LAP+ICR+ATT+SVD 0.826 & 4 \\
+    Gemma3-12B & LAP 0.817 & SAP+LAP 0.831 & SAP+LAP+ICR 0.834 & SAP+LAP+ICR+ATT 0.833 & SAP+LAP+ICR+ATT+SVD 0.831 & 3 \\
+    \hline\end{tabular}\end{table}
+
+\subsection{All 31 combinations}
+
+\begin{table}[h]\centering\footnotesize
+  \caption{Every subset, averaged over the six generators, pooled. Ranked by soft
+  MCC. SAP=SAPLMA, LAP=LapEigvals, ICR, ATT=attention baseline, SVD=hidden-state
+  baseline.}
+  \begin{tabular}{r l c c c c c c}
+    \hline
+    & & \multicolumn{2}{c}{soft} & \multicolumn{2}{c}{rank} & \multicolumn{2}{c}{hard} \\
+    \cline{3-4}\cline{5-6}\cline{7-8}
+    $k$ & Combination & MCC & AUROC & MCC & AUROC & MCC & AUROC \\
+    \hline
+    4 & SAP+LAP+ATT+SVD & 0.513 & 0.836 & 0.503 & 0.833 & 0.483 & 0.805 \\
+    3 & SAP+LAP+ATT & 0.512 & 0.837 & 0.508 & 0.836 & 0.493 & 0.801 \\
+    5 & SAP+LAP+ICR+ATT+SVD & 0.512 & 0.837 & 0.501 & 0.833 & 0.488 & 0.809 \\
+    4 & SAP+LAP+ICR+ATT & 0.511 & 0.838 & 0.505 & 0.836 & 0.485 & 0.807 \\
+    3 & SAP+LAP+ICR & 0.511 & 0.837 & 0.500 & 0.834 & 0.485 & 0.797 \\
+    3 & SAP+LAP+SVD & 0.509 & 0.835 & 0.494 & 0.829 & 0.481 & 0.794 \\
+    4 & SAP+LAP+ICR+SVD & 0.509 & 0.835 & 0.495 & 0.830 & 0.473 & 0.801 \\
+    2 & SAP+LAP & 0.508 & 0.836 & 0.504 & 0.836 & 0.471 & 0.786 \\
+    4 & SAP+ICR+ATT+SVD & 0.502 & 0.829 & 0.490 & 0.824 & 0.467 & 0.796 \\
+    3 & SAP+ICR+ATT & 0.501 & 0.829 & 0.492 & 0.828 & 0.476 & 0.792 \\
+    3 & SAP+ATT+SVD & 0.499 & 0.827 & 0.487 & 0.822 & 0.470 & 0.788 \\
+    2 & SAP+ATT & 0.498 & 0.824 & 0.489 & 0.824 & 0.454 & 0.777 \\
+    3 & SAP+ICR+SVD & 0.494 & 0.824 & 0.475 & 0.816 & 0.455 & 0.781 \\
+    2 & SAP+ICR & 0.492 & 0.824 & 0.479 & 0.820 & 0.442 & 0.771 \\
+    2 & SAP+SVD & 0.491 & 0.818 & 0.464 & 0.810 & 0.425 & 0.764 \\
+    4 & LAP+ICR+ATT+SVD & 0.482 & 0.821 & 0.478 & 0.818 & 0.457 & 0.790 \\
+    3 & LAP+ICR+ATT & 0.479 & 0.820 & 0.476 & 0.820 & 0.465 & 0.784 \\
+    3 & LAP+ATT+SVD & 0.477 & 0.818 & 0.473 & 0.815 & 0.460 & 0.781 \\
+    3 & LAP+ICR+SVD & 0.469 & 0.815 & 0.460 & 0.810 & 0.446 & 0.775 \\
+    2 & LAP+ATT & 0.469 & 0.815 & 0.469 & 0.815 & 0.442 & 0.767 \\
+    1 & SAP & 0.467 & 0.813 & 0.467 & 0.813 & 0.467 & 0.813 \\
+    2 & LAP+ICR & 0.467 & 0.814 & 0.460 & 0.812 & 0.427 & 0.762 \\
+    2 & LAP+SVD & 0.465 & 0.810 & 0.450 & 0.803 & 0.411 & 0.757 \\
+    3 & ICR+ATT+SVD & 0.457 & 0.804 & 0.451 & 0.802 & 0.434 & 0.768 \\
+    1 & LAP & 0.445 & 0.806 & 0.445 & 0.806 & 0.445 & 0.806 \\
+    2 & ICR+ATT & 0.445 & 0.798 & 0.447 & 0.799 & 0.415 & 0.752 \\
+    2 & ATT+SVD & 0.440 & 0.791 & 0.434 & 0.789 & 0.397 & 0.744 \\
+    2 & ICR+SVD & 0.413 & 0.781 & 0.410 & 0.779 & 0.374 & 0.734 \\
+    1 & ATT & 0.402 & 0.773 & 0.402 & 0.773 & 0.402 & 0.773 \\
+    1 & ICR & 0.377 & 0.766 & 0.377 & 0.766 & 0.377 & 0.766 \\
+    1 & SVD & 0.344 & 0.739 & 0.344 & 0.739 & 0.344 & 0.739 \\
+    \hline\end{tabular}\end{table}
+
+\subsection{Marginal contribution of each voter}
+
+\emph{Remove} is the full five-voter ensemble minus that voter: the cost of
+dropping it. \emph{Shapley} is its mean marginal contribution over all 16 coalitions that
+exclude it; with five players this is exact rather than sampled, and the five values sum to
+the full ensemble's score in every cell. The two disagree when a voter is redundant with
+another --- it can be cheap to remove, because a near-duplicate covers for it, and still
+contribute where that duplicate is absent. These values are computed inside the sweep, so
+their $k{=}1$ term is the re-thresholded one described above; they measure contribution
+within the ensemble and are not single-detector performance.
+
+\begin{table}[h]\centering\footnotesize
+  \caption{Soft voting, pooled, per generator. Voters ordered by Shapley value.}
+  \begin{tabular}{l l c c c c}
+    \hline
+    & & \multicolumn{2}{c}{MCC} & \multicolumn{2}{c}{AUROC} \\
+    \cline{3-4}\cline{5-6}
+    Model & Voter & remove & Shapley & remove & Shapley \\
+    \hline
+    Qwen3-14B & SAPLMA & $+0.0372$ & $+0.1536$ & $+0.0170$ & $+0.1934$ \\
+     & LapEig. & $+0.0064$ & $+0.1186$ & $+0.0058$ & $+0.1817$ \\
+     & Attn. & $+0.0028$ & $+0.1019$ & $+0.0023$ & $+0.1685$ \\
+     & ICR & $-0.0033$ & $+0.0878$ & $-0.0001$ & $+0.1612$ \\
+     & SVD & $+0.0021$ & $+0.0729$ & $-0.0007$ & $+0.1497$ \\
+    \hline
+    Gemma3-12B-it & SAPLMA & $+0.0249$ & $+0.1482$ & $+0.0115$ & $+0.1892$ \\
+     & LapEig. & $+0.0130$ & $+0.1283$ & $+0.0068$ & $+0.1834$ \\
+     & Attn. & $+0.0047$ & $+0.1068$ & $+0.0004$ & $+0.1678$ \\
+     & SVD & $+0.0052$ & $+0.1050$ & $+0.0013$ & $+0.1699$ \\
+     & ICR & $-0.0030$ & $+0.0911$ & $-0.0017$ & $+0.1618$ \\
+    \hline
+    Gemma3-4B-it & SAPLMA & $+0.0260$ & $+0.1519$ & $+0.0131$ & $+0.1900$ \\
+     & Attn. & $+0.0030$ & $+0.1138$ & $+0.0023$ & $+0.1711$ \\
+     & LapEig. & $-0.0007$ & $+0.1069$ & $+0.0029$ & $+0.1725$ \\
+     & ICR & $-0.0019$ & $+0.1004$ & $+0.0003$ & $+0.1659$ \\
+     & SVD & $-0.0022$ & $+0.0892$ & $-0.0024$ & $+0.1574$ \\
+    \hline
+    Llama3.2-3B-it & SAPLMA & $+0.0515$ & $+0.1482$ & $+0.0305$ & $+0.1926$ \\
+     & LapEig. & $+0.0091$ & $+0.0924$ & $+0.0104$ & $+0.1700$ \\
+     & Attn. & $-0.0035$ & $+0.0634$ & $+0.0015$ & $+0.1471$ \\
+     & ICR & $+0.0008$ & $+0.0568$ & $+0.0012$ & $+0.1424$ \\
+     & SVD & $-0.0079$ & $+0.0340$ & $-0.0003$ & $+0.1271$ \\
+    \hline
+    Llama3.2-3B & SAPLMA & $+0.0235$ & $+0.1297$ & $+0.0109$ & $+0.1790$ \\
+     & LapEig. & $+0.0113$ & $+0.1178$ & $+0.0072$ & $+0.1772$ \\
+     & Attn. & $+0.0059$ & $+0.0946$ & $+0.0017$ & $+0.1611$ \\
+     & ICR & $-0.0011$ & $+0.0889$ & $+0.0009$ & $+0.1622$ \\
+     & SVD & $+0.0043$ & $+0.0747$ & $-0.0024$ & $+0.1467$ \\
+    \hline
+    Gemma3-12B & LapEig. & $+0.0163$ & $+0.1268$ & $+0.0122$ & $+0.1860$ \\
+     & SAPLMA & $+0.0141$ & $+0.1180$ & $+0.0102$ & $+0.1756$ \\
+     & Attn. & $+0.0026$ & $+0.0886$ & $+0.0001$ & $+0.1599$ \\
+     & ICR & $-0.0008$ & $+0.0875$ & $+0.0009$ & $+0.1607$ \\
+     & SVD & $+0.0006$ & $+0.0724$ & $-0.0021$ & $+0.1485$ \\
+    \hline
+  \end{tabular}\end{table}
