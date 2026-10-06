@@ -23,11 +23,15 @@ class ForwardTrace:
     attentions:    tuple of L tensors, each [H, T, T] — row-stochastic, lower-triangular
     hidden_states: tuple of L+1 tensors, each [T, d] — raw residual stream (not normed)
     prompt_len:    number of prompt tokens; answer tokens are [prompt_len:]
+    input_ids:     the [T] token ids the trace was computed over, when the producer
+                   knows them. Adapters of upstream code need them to rebuild the
+                   upstream input exactly (see methods/lapeigvals).
     """
 
     attentions: tuple[torch.Tensor, ...]
     hidden_states: tuple[torch.Tensor, ...]
     prompt_len: int
+    input_ids: torch.Tensor | None = None
 
     @property
     def n_layers(self) -> int:

@@ -40,7 +40,7 @@ from halluc.config import Config
 from halluc.io import load_features, read_json, write_json
 from halluc.pipeline.stage5_posthoc import _fast_mcc, _folds, load_seed
 
-BLOCKS = ["lapeigvals", "attn_baseline", "saplma", "svd_baseline", "icr"]
+BLOCKS = ["lapeigvals", "saplma", "icr"]
 SAPLMA_LAYER = 24
 
 
@@ -49,8 +49,7 @@ def load_blocks(cfg, sd):
     ids = list(sd["item_ids"])
     pos = {i: k for k, i in enumerate(ids)}
     out = {}
-    shapes = {"lapeigvals": 16000, "attn_baseline": 16000, "saplma": 5120,
-              "svd_baseline": 41, "icr": 40}
+    shapes = {"lapeigvals": 16000, "saplma": 5120, "icr": 40}
     for b in BLOCKS:
         out[b] = np.zeros((len(ids), shapes[b]), np.float32)
     for ds in cfg.datasets:

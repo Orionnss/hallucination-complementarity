@@ -1,6 +1,6 @@
 """Every subset of the five detectors, scored under the stage-3 protocol.
 
-31 non-empty subsets of {saplma, lapeigvals, attn_baseline, icr, svd_baseline}, each
+All 2^n - 1 non-empty subsets of METHODS (7 for {saplma, lapeigvals, icr}), each
 trained exactly the way `union_equal` is: standardise, PCA each block to 128 dims,
 concatenate, logistic regression with C tuned on an inner split, threshold tuned on the
 same inner split, evaluated on the untouched outer fold.
@@ -46,7 +46,7 @@ from halluc.eval.metrics import best_threshold
 from halluc.io import load_features, write_json
 from halluc.pipeline.stage5_posthoc import _fast_mcc, _folds, load_seed
 
-METHODS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline"]
+METHODS = ["saplma", "lapeigvals", "icr"]
 C_GRID = (0.003, 0.03, 0.3, 3.0)
 N_COMPONENTS = 128
 

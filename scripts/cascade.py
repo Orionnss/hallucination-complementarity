@@ -52,7 +52,7 @@ from halluc.eval.metrics import best_threshold
 from halluc.io import load_features, write_json
 from halluc.pipeline.stage5_posthoc import _folds, load_seed
 
-BLOCKS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline"]
+BLOCKS = ["saplma", "lapeigvals", "icr"]
 LAYER = {"main": 24, "gemma3-12b": 29, "gemma3-4b": 17, "llama3.2-3b": 14}
 C_GRID = (0.003, 0.03, 0.3, 3.0)
 SPECIALISTS = ["score", "saplma", "union"]

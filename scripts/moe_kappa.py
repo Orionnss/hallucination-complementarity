@@ -50,7 +50,7 @@ from halluc.pipeline.stage5_posthoc import _folds, load_seed
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from moe_experts import LAYER, Probe, load_saplma  # noqa: E402
 
-METHODS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline"]
+METHODS = ["saplma", "lapeigvals", "icr"]
 
 
 def build(run, seed, cache_dir):

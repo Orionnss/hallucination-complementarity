@@ -44,7 +44,7 @@ from sklearn.preprocessing import StandardScaler
 from halluc.config import Config
 from halluc.io import load_features, write_json
 
-BLOCKS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline"]
+BLOCKS = ["saplma", "lapeigvals", "icr"]
 
 
 def load_block(cfg, item_ids, name):

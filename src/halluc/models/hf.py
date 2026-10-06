@@ -232,7 +232,8 @@ class HFGenerator(Generator):
     ) -> ForwardTrace:
         """Forward trace for an answer stage 1 already produced, without regenerating.
 
-        CHARM needs a full attention trace per item but no new text: stage 1 recorded
+        Adapters that re-read the model (methods/, scripts/extract_*_official.py) need a
+        full attention trace per item but no new text: stage 1 recorded
         what the model said, and greedy decoding makes that reproducible. Re-encoding
         the stored answer and running the single eager forward costs one pass instead of
         up to 256 decode steps, which is the difference between hours and a day over
@@ -304,6 +305,7 @@ class HFGenerator(Generator):
                 attentions=tuple(a[0] for a in out.attentions),
                 hidden_states=tuple(h[0] for h in out.hidden_states),
                 prompt_len=prompt_len,
+                input_ids=seq[0].detach().cpu(),
             )
         finally:
             self.model.set_attn_implementation("sdpa")

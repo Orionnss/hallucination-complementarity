@@ -46,7 +46,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 from halluc.io import write_json
 
-OTHERS = ["lapeigvals", "attn_baseline", "icr", "svd_baseline", "charm", "logprob"]
+OTHERS = ["lapeigvals", "icr"]
 RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b"]
 
 

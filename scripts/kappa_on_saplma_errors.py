@@ -43,7 +43,7 @@ from sklearn.metrics import cohen_kappa_score
 
 from halluc.io import write_json
 
-METHODS = ["icr", "lapeigvals", "attn_baseline", "svd_baseline", "charm", "saplma"]
+METHODS = ["icr", "lapeigvals", "saplma"]
 RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b"]
 POPS = ["all", "SAPLMA wrong", "SAPLMA right"]
 

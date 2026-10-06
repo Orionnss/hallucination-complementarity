@@ -18,3 +18,8 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+
+# Upstream source trees of adapted methods. Fetched locally at a pinned commit and
+# loaded read-only by src/halluc/methods/. Not ours to redistribute (LapEigvals has no
+# licence), so they never enter git.
+original-repos/

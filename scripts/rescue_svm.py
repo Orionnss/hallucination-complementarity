@@ -50,7 +50,7 @@ from sklearn.svm import SVC
 from halluc.config import Config
 from halluc.io import load_features, write_json
 
-BLOCKS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline"]
+BLOCKS = ["saplma", "lapeigvals", "icr"]
 METHODS = [b for b in BLOCKS if b != "saplma"]
 SVM_GRID = [("rbf", 1.0, "scale"), ("rbf", 10.0, "scale"),
             ("rbf", 1.0, 1e-3), ("rbf", 0.1, "scale")]

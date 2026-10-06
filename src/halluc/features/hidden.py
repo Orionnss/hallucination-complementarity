@@ -1,4 +1,4 @@
-"""Hidden-state features: SAPLMA's probe input and the singular-value baseline."""
+"""Hidden-state features: SAPLMA's probe input (reimplemented: no official code exists)."""
 
 from __future__ import annotations
 
@@ -39,19 +39,3 @@ class Saplma(FeatureExtractor):
         # anyway, so it is used whenever the values comfortably fit.
         dtype = np.float16 if np.abs(stack).max() < self.FP16_SAFE_MAX else np.float32
         return {self.name: stack.astype(dtype)}
-
-
-@FEATURES.register("svd_baseline")
-class SvdBaseline(FeatureExtractor):
-    """Singular values of the last token's across-layer hidden-state matrix.
-
-    Stacking [L+1, d] and taking its spectrum summarises how the token's representation
-    rotates through depth, in L+1 numbers that are independent of d.
-    """
-
-    name = "svd_baseline"
-
-    def extract(self, trace: ForwardTrace) -> dict[str, np.ndarray]:
-        stack = _last_token_stack(trace)  # [L+1, d]
-        singular_values = torch.linalg.svdvals(stack)  # [min(L+1, d)] = [L+1]
-        return {self.name: singular_values.cpu().numpy().astype(np.float32)}

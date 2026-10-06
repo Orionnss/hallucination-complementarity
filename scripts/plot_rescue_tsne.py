@@ -43,8 +43,7 @@ from halluc.config import Config
 from halluc.io import load_features
 
 # dataviz reference palette, categorical slots 1-4, fixed order.
-SERIES = {"lapeigvals": "#2a78d6", "icr": "#eb6834",
-          "attn_baseline": "#1baf7a", "svd_baseline": "#eda100"}
+SERIES = {"lapeigvals": "#2a78d6", "icr": "#eb6834"}
 GREY = "#b8b7b2"
 INK, INK_2, SURFACE = "#0b0b0b", "#52514e", "#fcfcfb"
 

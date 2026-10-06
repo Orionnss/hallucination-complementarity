@@ -39,7 +39,7 @@ from halluc.config import Config
 from halluc.io import load_features, write_json
 from halluc.pipeline.stage5_posthoc import _fast_mcc, _folds, load_seed
 
-BLOCKS = ["lapeigvals", "attn_baseline", "saplma", "svd_baseline", "icr"]
+BLOCKS = ["lapeigvals", "saplma", "icr"]
 
 #: architecture, L2 penalty, initial learning rate
 MLP_CONFIGS = [

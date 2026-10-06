@@ -22,8 +22,8 @@ Either way nothing is refitted here and no model sees its own test fold; both so
 out-of-fold under stage 3's nested CV. That is what makes plain voting the clean test: a
 learned stacker can launder extra capacity as a gain, a vote cannot.
 
-  vote_hard        majority of the five binary predictions, >= 3 of 5
-  vote_hard_4of5   >= 4 of 5
+  vote_hard        strict majority of the n binary predictions (>= 3 of 5)
+  vote_hard_all_but_one  >= n - 1 of n (>= 4 of 5; with 3 voters it equals vote_hard)
   vote_unanimous   5 of 5
   vote_soft        mean of the five probability scores, thresholded once
   vote_rank        mean of within-method ranks, thresholded once
@@ -72,11 +72,11 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 from halluc.io import write_json
 
-METHODS = ["saplma", "lapeigvals", "icr", "attn_baseline", "svd_baseline"]
+METHODS = ["saplma", "lapeigvals", "icr"]
 RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b",
         "llama3.2-3b-base", "gemma3-12b-pt"]
 SCOPES = ["pooled", "triviaqa", "nq_open", "squad_v2", "coqa"]
-VOTES = ["vote_hard", "vote_hard_4of5", "vote_unanimous", "vote_soft", "vote_rank"]
+VOTES = ["vote_hard", "vote_hard_all_but_one", "vote_unanimous", "vote_soft", "vote_rank"]
 METRICS = ["mcc", "auroc", "accuracy", "balanced_accuracy", "f1"]
 
 
@@ -155,9 +155,11 @@ def run_one(run: str, source: str) -> tuple[dict, list[int], dict]:
         picked.append(METHODS[bi])
         cand["best_single"] = (P[bi], S[bi])
 
-        cand["vote_hard"] = ((votes >= 3).astype(int), votes / 5.0)
-        cand["vote_hard_4of5"] = ((votes >= 4).astype(int), votes / 5.0)
-        cand["vote_unanimous"] = ((votes == 5).astype(int), votes / 5.0)
+        # Cut points follow the number of voters (with five voters: >= 3, >= 4, == 5).
+        n = len(METHODS)
+        cand["vote_hard"] = ((votes > n / 2).astype(int), votes / n)
+        cand["vote_hard_all_but_one"] = ((votes >= n - 1).astype(int), votes / n)
+        cand["vote_unanimous"] = ((votes == n).astype(int), votes / n)
         for name, s in (("vote_soft", S.mean(0)), ("vote_rank", R.mean(0))):
             cand[name] = (cross_fit_predict(y, s, groups, seed), s)
 
@@ -194,10 +196,10 @@ def big_table(out, runs):
                     cells += (f"{np.mean(v):11.4f}±{np.std(v):.3f}" if v
                               else f"{'-':>17s}")
                 # The three hard variants differ only in where the vote count is cut,
-                # and all three rank by the same votes/5 score, so their AUROC is equal by
+                # and all three rank by the same votes/n score, so their AUROC is equal by
                 # construction. Marked rather than silently repeated three times.
                 mark = ("  =hard" if metric == "auroc"
-                        and r in ("vote_hard_4of5", "vote_unanimous") else "")
+                        and r in ("vote_hard_all_but_one", "vote_unanimous") else "")
                 print(f"    {r + mark:18s}{cells}")
             # the comparison the section exists to make
             for v in VOTES:

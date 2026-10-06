@@ -5,12 +5,10 @@ side-runs, each writing its own file. This pulls them into one place so a number
 compared with the one beside it rather than with a number from a different protocol.
 
 Everything here comes from stage 3's per-seed metrics, which all six generators share, so
-the rows are directly comparable. Three additions are marked because they are not:
+the rows are directly comparable. One addition is marked because it is not:
 
   saplma (PCA+LR)  the same features under the union's classifier — measured only on the
                    four instruct generators
-  charm            its own stage, its own tuning; ran on two generators, failed on a third
-  logprob          token confidence, extracted after stage 1; one generator
 
 Reported per generator alongside its hallucination rate and INVALID rate, because a method
 comparison across generators means little without both: detectability tracks class balance,
@@ -41,11 +39,7 @@ RUNS = [
     ("llama3.2-3b-base", "Llama-3.2-3B", "L3b/BASE", "BASE"),
 ]
 
-#: CHARM was only ever launched on three runs; "not run" and "failed" are different
-#: facts and the table must not present the first as the second.
-CHARM_ATTEMPTED = {"main", "llama3.2-3b-base", "gemma3-12b-pt"}
-METHODS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline",
-           "union_raw", "union_equal"]
+METHODS = ["saplma", "lapeigvals", "icr", "union_raw", "union_equal"]
 DS = ["triviaqa", "nq_open", "squad_v2", "coqa"]
 
 
@@ -62,19 +56,6 @@ def stage3(run):
                 agg[(m, ds)]["mcc"].append(dv["mcc"])
                 agg[(m, ds)]["auroc"].append(dv["auroc"])
     return agg, (float(np.mean(pr)) if pr else float("nan")), n
-
-
-def charm(run):
-    out = defaultdict(lambda: defaultdict(list))
-    fs = sorted(glob.glob(f"runs/{run}/stage6_charm/pooled/seed*/metrics.json"))
-    for f in fs:
-        pm = json.load(open(f))["per_method"]["charm"]
-        out[("charm", "pooled")]["mcc"].append(pm["pooled_mcc"])
-        out[("charm", "pooled")]["auroc"].append(pm["pooled_auroc"])
-        for ds, dv in pm["per_dataset"].items():
-            out[("charm", ds)]["mcc"].append(dv["mcc"])
-            out[("charm", ds)]["auroc"].append(dv["auroc"])
-    return out, len(fs)
 
 
 def judge_stats(run):
@@ -99,30 +80,26 @@ def main() -> None:
         if Path("runs/saplma_pcalr_metrics.json").exists() else {}
     for run, name, short, kind in RUNS:
         a, pr, n = stage3(run)
-        c, nc = charm(run)
-        a.update(c)
         if run in pcalr:
             for scope, v in pcalr[run].items():
                 a[("saplma (PCA+LR)", scope)] = {k: [v[k]["mean"]] for k in ("mcc", "auroc")
                                                  if k in v}
         data[run] = a
         tot, inv, sc, hr = judge_stats(run)
-        meta[run] = dict(name=name, short=short, kind=kind, seeds=n, charm_seeds=nc,
+        meta[run] = dict(name=name, short=short, kind=kind, seeds=n,
                          answers=tot, invalid=inv, scored=sc, halluc=hr)
 
-    order = ["saplma (PCA+LR)"] + METHODS + ["charm"]
+    order = ["saplma (PCA+LR)"] + METHODS
     metrics = ["mcc", "auroc"] if args.metric == "both" else [args.metric]
 
     print(f"\n{'=' * 118}\n  GENERATORS\n{'=' * 118}")
     print(f"  {'generator':22s}{'seeds':>7s}{'answers':>9s}{'INVALID':>9s}"
-          f"{'scored':>9s}{'halluc rate':>13s}{'CHARM':>8s}")
+          f"{'scored':>9s}{'halluc rate':>13s}")
     for run, _, _, _ in RUNS:
         m = meta[run]
-        cs = (f"{m['charm_seeds']} sd" if m["charm_seeds"]
-              else ("FAILED" if run in CHARM_ATTEMPTED else "not run"))
         print(f"  {m['name'] + ' [' + m['kind'] + ']':22s}{m['seeds']:>7d}"
               f"{m['answers']:>9d}{m['invalid']:>9d}{m['scored']:>9d}"
-              f"{m['halluc']:>12.1%}{cs:>9s}")
+              f"{m['halluc']:>12.1%}")
 
     for metric in metrics:
         print(f"\n{'=' * 118}\n  POOLED {metric.upper()}\n{'=' * 118}")

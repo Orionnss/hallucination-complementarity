@@ -7,7 +7,7 @@
 #                         the same ones every fold?
 #
 # Both write per-run files, so runs never overwrite each other and a crash costs only the
-# model it was on. Nothing here touches the GPU, so it can run alongside CHARM.
+# model it was on. Nothing here touches the GPU.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 RUNS=(main gemma3-12b gemma3-4b llama3.2-3b llama3.2-3b-base gemma3-12b-pt)

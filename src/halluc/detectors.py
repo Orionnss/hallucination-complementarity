@@ -4,9 +4,9 @@ Every detector reads the blocks stage 1 already computed, so adding one means de
 which blocks it wants and how to turn them into a design matrix — no re-extraction.
 
 PCA policy (locked): LapEigvals uses PCA because that is part of the published method
-and 16,000 dims would otherwise swamp a logistic regression. The attention baseline does
-not, so the pair isolates the Laplacian transform rather than the dimensionality
-reduction. Every transform is fit on training folds only.
+and 16,000 dims would otherwise swamp a logistic regression. Every transform is fit on
+training folds only. Our own baselines (attn_baseline, svd_baseline) were removed; the
+no-Laplacian control is now the official AttnEigvals block (methods/lapeigvals).
 """
 
 from __future__ import annotations
@@ -163,17 +163,15 @@ class UnionDetector(Detector):
 
     def matrix(self, data: dict[str, np.ndarray], params: dict) -> np.ndarray:
         layer = min(params["layer"], data["saplma"].shape[1] - 1)
-        parts = [_flatten(data["lapeigvals"]), _flatten(data["attn_baseline"]),
+        parts = [_flatten(data["lapeigvals"]),
                  data["saplma"][:, layer, :].astype(np.float64),
-                 _flatten(data["svd_baseline"]), _flatten(data["icr"])]
+                 _flatten(data["icr"])]
         return np.concatenate(parts, axis=1)
 
     def block_slices(self, data: dict[str, np.ndarray], params: dict) -> list[slice]:
         widths = [
             _flatten(data["lapeigvals"]).shape[1],
-            _flatten(data["attn_baseline"]).shape[1],
             data["saplma"].shape[2],
-            _flatten(data["svd_baseline"]).shape[1],
             _flatten(data["icr"]).shape[1],
         ]
         edges = np.cumsum([0, *widths])
@@ -225,12 +223,6 @@ def build_detectors(n_layers: int = 40) -> dict[str, Detector]:
             blocks=("lapeigvals",),
             grid=[{"n_components": 512, "C": 1.0}],
         ),
-        "attn_baseline": LinearDetector(
-            name="attn_baseline", blocks=("attn_baseline",), grid=_grid(C=_C_GRID)
-        ),
-        "svd_baseline": LinearDetector(
-            name="svd_baseline", blocks=("svd_baseline",), grid=_grid(C=_C_GRID)
-        ),
         "saplma": SaplmaDetector(
             name="saplma", blocks=("saplma",), grid=_grid(layer=saplma_layers)
         ),
@@ -239,13 +231,13 @@ def build_detectors(n_layers: int = 40) -> dict[str, Detector]:
         ),
         "union_raw": UnionDetector(
             name="union_raw",
-            blocks=("lapeigvals", "attn_baseline", "saplma", "svd_baseline", "icr"),
+            blocks=("lapeigvals", "saplma", "icr"),
             grid=_grid(layer=union_layers, C=_C_GRID),
             equal=False,
         ),
         "union_equal": UnionDetector(
             name="union_equal",
-            blocks=("lapeigvals", "attn_baseline", "saplma", "svd_baseline", "icr"),
+            blocks=("lapeigvals", "saplma", "icr"),
             grid=_grid(layer=union_layers, per_block=(128,), C=_C_GRID),
             equal=True,
         ),

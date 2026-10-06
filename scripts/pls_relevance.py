@@ -61,7 +61,7 @@ from halluc.pipeline.stage5_posthoc import _folds, load_seed
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fair_comparison import LAYER, load_block
 
-METHODS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline", "logprob"]
+METHODS = ["saplma", "lapeigvals", "icr"]
 N_COMP = 8
 AT = (1, 2, 4, 8)
 

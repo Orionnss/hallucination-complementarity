@@ -62,26 +62,10 @@ from halluc.io import load_features, write_json
 from halluc.pipeline.stage5_posthoc import _folds, load_seed
 
 LAYER = {"main": 24, "gemma3-12b": 29, "gemma3-4b": 17, "llama3.2-3b": 14}
-METHODS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline", "logprob"]
+METHODS = ["saplma", "lapeigvals", "icr"]
 C_GRID = (0.003, 0.03, 0.3, 3.0)
 PCA_DIMS = (64, 128)
 MLP_GRID = [((256, 128, 64), 1e-4), ((256, 128, 64), 1e-2), ((128,), 1e-4), ((128,), 1e-2)]
-
-
-_LP_CACHE: dict = {}
-
-
-def _logprob_ids(d):
-    """Item ids that actually have logprob features, from the extraction checkpoint."""
-    key = str(d)
-    if key not in _LP_CACHE:
-        ids = set()
-        for line in (d / "checkpoint.jsonl").open():
-            r = json.loads(line)
-            if "shard" in r:
-                ids.add(r.get("item_id") or r.get("id"))
-        _LP_CACHE[key] = ids
-    return _LP_CACHE[key]
 
 
 def load_block(cfg, ids, name, layer):
@@ -92,21 +76,7 @@ def load_block(cfg, ids, name, layer):
         if not sub:
             continue
         base = cfg.stage_dir("stage1_extract", ds)
-        if name == "logprob":
-            # logprob lives in its own subdirectory (extracted after stage 1, logits
-            # head only). ~0.1% of items failed the tokenizer round-trip and have no
-            # features; those rows are imputed with the column median rather than
-            # dropped, so every method is scored on an identical item set.
-            have = [i for i in sub if i in _logprob_ids(base / "logprob")]
-            got = load_features(base / "logprob", name, have).reshape(len(have), -1)
-            a = np.tile(np.median(got, axis=0), (len(sub), 1)).astype(np.float32)
-            pos_sub = {i: k for k, i in enumerate(sub)}
-            a[[pos_sub[i] for i in have]] = got
-            if len(have) < len(sub):
-                print(f"    logprob: imputed {len(sub) - len(have)}/{len(sub)} in {ds}",
-                      flush=True)
-        else:
-            a = load_features(base, name, sub)
+        a = load_features(base, name, sub)
         if name == "saplma":
             a = a[:, min(layer, a.shape[1] - 1), :]
         a = a.reshape(len(sub), -1).astype(np.float32)

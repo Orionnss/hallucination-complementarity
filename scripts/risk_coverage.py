@@ -51,7 +51,7 @@ from scipy.stats import rankdata
 
 from halluc.io import write_json
 
-METHODS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline"]
+METHODS = ["saplma", "lapeigvals", "icr"]
 COVERAGES = (1.0, 0.9, 0.8, 0.6, 0.5, 0.4, 0.2, 0.1)
 FLAG_RATES = (0.05, 0.10, 0.20, 0.30)
 

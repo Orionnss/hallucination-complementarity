@@ -49,7 +49,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 from halluc.io import write_json
 
-SINGLES = ["saplma", "lapeigvals", "icr", "attn_baseline", "svd_baseline"]
+SINGLES = ["saplma", "lapeigvals", "icr"]
 UNIONS = ["union_equal", "union_raw"]
 RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b",
         "llama3.2-3b-base", "gemma3-12b-pt"]
@@ -100,7 +100,8 @@ def run_one(run: str):
         A = np.stack([P[m] for m in SINGLES])
         Sm = np.stack([S[m] for m in SINGLES])
         votes = A.sum(0)
-        cand["vote_hard"] = ((votes >= 3).astype(int), votes / 5.0)
+        n = len(SINGLES)
+        cand["vote_hard"] = ((votes > n / 2).astype(int), votes / n)
         R = np.stack([rankdata(s) / len(s) for s in Sm])
         for name, sc in (("vote_soft", Sm.mean(0)), ("vote_rank", R.mean(0))):
             cand[name] = (cross_fit_predict(y, sc, groups, seed), sc)

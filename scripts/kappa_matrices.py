@@ -54,9 +54,8 @@ from sklearn.metrics import cohen_kappa_score
 
 from halluc.io import write_json
 
-METHODS = ["saplma", "lapeigvals", "icr", "attn_baseline", "svd_baseline"]
-SHORT = {"saplma": "SAPLMA", "lapeigvals": "LapEig", "icr": "ICR",
-         "attn_baseline": "Attn", "svd_baseline": "SVD"}
+METHODS = ["saplma", "lapeigvals", "icr"]
+SHORT = {"saplma": "SAPLMA", "lapeigvals": "LapEig", "icr": "ICR"}
 RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b",
         "llama3.2-3b-base", "gemma3-12b-pt"]
 SCOPES = ["pooled", "triviaqa", "nq_open", "squad_v2", "coqa"]

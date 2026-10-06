@@ -49,7 +49,7 @@ from halluc.eval.metrics import best_threshold
 from halluc.io import load_features, write_json
 from halluc.pipeline.stage5_posthoc import _fast_mcc, _folds, load_seed
 
-BLOCKS = ["lapeigvals", "attn_baseline", "saplma", "svd_baseline", "icr"]
+BLOCKS = ["lapeigvals", "saplma", "icr"]
 
 
 class BlockEncoder(nn.Module):

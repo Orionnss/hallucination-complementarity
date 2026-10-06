@@ -44,7 +44,7 @@ from sklearn.svm import SVC
 from halluc.config import Config
 from halluc.io import load_features, write_json
 
-BLOCKS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline"]
+BLOCKS = ["saplma", "lapeigvals", "icr"]
 LAYER = {"main": 24, "gemma3-12b": 29, "gemma3-4b": 17, "llama3.2-3b": 14}
 
 

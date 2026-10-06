@@ -52,7 +52,7 @@ from sklearn.metrics import (accuracy_score, balanced_accuracy_score, f1_score,
 
 from halluc.io import write_json
 
-METHODS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline"]
+METHODS = ["saplma", "lapeigvals", "icr"]
 RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b"]
 
 
@@ -93,15 +93,18 @@ def main() -> None:
             d = np.load(f, allow_pickle=True)
             y, ds_arr = d["y"], d["dataset"].astype(str)
             groups = d["groups"].astype(str)
-            P = np.stack([d[f"preds__{m}"] for m in METHODS])          # [5, N] binary
-            S = np.stack([d[f"scores__{m}"] for m in METHODS])         # [5, N] probability
+            P = np.stack([d[f"preds__{m}"] for m in METHODS])          # [n, N] binary
+            S = np.stack([d[f"scores__{m}"] for m in METHODS])         # [n, N] probability
 
             votes = P.sum(0)
             R = np.stack([rankdata(s) / len(s) for s in S])
 
-            cand = {"vote_hard": ((votes >= 3).astype(int), votes / 5.0),
-                    "vote_hard_4of5": ((votes >= 4).astype(int), votes / 5.0),
-                    "vote_unanimous": ((votes == 5).astype(int), votes / 5.0)}
+            # Cut points follow the number of voters, so the rules keep their meaning
+            # whatever METHODS holds (with five voters: >= 3, >= 4, == 5).
+            n = len(METHODS)
+            cand = {"vote_hard": ((votes > n / 2).astype(int), votes / n),
+                    "vote_hard_all_but_one": ((votes >= n - 1).astype(int), votes / n),
+                    "vote_unanimous": ((votes == n).astype(int), votes / n)}
             for name, sc in (("vote_soft", S.mean(0)), ("vote_rank", R.mean(0))):
                 cand[name] = (_cross_fit_predict(y, sc, groups, seed), sc)
 
@@ -124,7 +127,7 @@ def main() -> None:
                     for (n, s), dd in acc.items()}
 
     scopes = ["pooled", "pooled_no_coqa", "triviaqa", "nq_open", "squad_v2", "coqa"]
-    order = ["vote_hard", "vote_soft", "vote_rank", "vote_hard_4of5", "vote_unanimous"]
+    order = ["vote_hard", "vote_soft", "vote_rank", "vote_hard_all_but_one", "vote_unanimous"]
     for metric in ("mcc", "auroc", "balanced_accuracy"):
         print(f"\n{'=' * 96}\n  {metric.upper()}\n{'=' * 96}")
         for run in args.runs:

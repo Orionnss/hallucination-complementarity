@@ -21,7 +21,7 @@ stage 3's folds, so the rows drop straight into the existing tables.
                     to detectors.py's SaplmaDetector, applied to every method's block
 
 Low-dimensional blocks make two of these rows the same measurement: icr is 40 dims,
-svd_baseline 41 and logprob 14, so PCA at 128 and at 256 both clamp to the feature count
+so PCA at 128 and at 256 both clamp to the feature count
 and no projection happens. Those rows are reported as `=pca128` rather than repeated, and
 the effective width is recorded per method.
 
@@ -63,9 +63,9 @@ from halluc.io import write_json
 from halluc.pipeline.stage5_posthoc import _folds, load_seed
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fair_comparison import LAYER, load_block  # identical block loading, incl. logprob
+from fair_comparison import LAYER, load_block  # identical block loading
 
-METHODS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline", "logprob"]
+METHODS = ["saplma", "lapeigvals", "icr"]
 C_GRID = (0.003, 0.03, 0.3, 3.0)
 PCA_DIMS = (128, 256)
 PLS_DIMS = (4, 8)

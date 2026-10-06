@@ -46,7 +46,7 @@ from halluc.eval.metrics import best_threshold
 from halluc.io import load_features, write_json
 from halluc.pipeline.stage5_posthoc import _fast_mcc, _folds, load_seed
 
-BLOCKS = ["saplma", "lapeigvals", "attn_baseline", "icr", "svd_baseline"]
+BLOCKS = ["saplma", "lapeigvals", "icr"]
 OTHERS = [b for b in BLOCKS if b != "saplma"]
 C_GRID = (0.003, 0.03, 0.3, 3.0)
 RUNS = [("Qwen3-14B", "main", 24), ("gemma-3-12b", "gemma3-12b", 29),

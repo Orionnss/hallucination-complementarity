@@ -5,15 +5,15 @@
 #   gemma3-12b-pt      google/gemma-3-12b-pt      ~3.5 s/item on triviaqa
 #
 # Ordered by resource, not by model, so the GPU is released as early as possible: all
-# GPU work except CHARM runs first, then the CPU-only stages, then CHARM last.
+# GPU work runs first, then the CPU-only stages.
 #
 #   phase 1  stage 1, both models      GPU   generation + attention traces   ~24 h
 #   phase 2  stage 2, both models      GPU   3 judges, 4-bit                 ~2 h
 #   phase 3  stages 3-5, both models   CPU   probes, kappa/McNemar, post-hoc ~5 h
-#   phase 4  CHARM, both models        GPU   most costly, so last
 #
-# After phase 2 the GPU is free until CHARM: phase 3 can be interrupted, moved to another
-# machine, or rerun from disk without repeating anything expensive.
+# After phase 2 the GPU is free: phase 3 can be interrupted, moved to another machine, or
+# rerun from disk without repeating anything expensive. CHARM (formerly phase 4, stage 6)
+# was removed with its reimplementation; it returns as an adapter of the official code.
 #
 # Llama precedes Gemma within each phase: it is less than half the cost, so a problem with
 # the base-model setup surfaces after ~7 h rather than ~24.
@@ -106,7 +106,7 @@ for RUN_ID in "${RUNS[@]}"; do
         --run-id "$RUN_ID" --device "$DEVICE" --config "$CFG" \
         || log "$RUN_ID stage 2 FAILED (continuing)"
 done
-log "=== PHASE 2 complete: GPU is now free until CHARM ==="
+log "=== PHASE 2 complete: GPU is now free ==="
 
 # --- phase 3: probes and analysis, both models (CPU) ----------------------------
 for RUN_ID in "${RUNS[@]}"; do
@@ -123,16 +123,5 @@ for RUN_ID in "${RUNS[@]}"; do
         || log "$RUN_ID stage 5 FAILED"
 done
 log "=== PHASE 3 complete ==="
-
-# --- phase 4: CHARM, most costly, needs stage 2's labels ------------------------
-for RUN_ID in "${RUNS[@]}"; do
-    log "=== PHASE 4 | $RUN_ID | CHARM (GPU) ==="
-    # CHARM re-extracts attention itself, so the generator is passed explicitly rather
-    # than inferred from the run directory.
-    uv run python -m halluc.pipeline.stage6_charm \
-        --run-id "$RUN_ID" --model "$(model_of "$RUN_ID")" \
-        --device "$DEVICE" --scope pooled \
-        || log "$RUN_ID CHARM FAILED (continuing)"
-done
 
 log "ALL DONE"

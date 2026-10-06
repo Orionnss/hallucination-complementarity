@@ -45,7 +45,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 from halluc.io import write_json
 
-OTHERS = ["lapeigvals", "attn_baseline", "icr", "svd_baseline"]
+OTHERS = ["lapeigvals", "icr"]
 ALL = ["saplma"] + OTHERS
 RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b"]
 
@@ -80,18 +80,18 @@ def main() -> None:
             P = {m: d[f"preds__{m}"] for m in ALL}
             S = {m: d[f"scores__{m}"] for m in ALL}
 
-            v4 = np.stack([P[m] for m in OTHERS]).sum(0) / 4.0
-            v5 = np.stack([P[m] for m in ALL]).sum(0) / 5.0
-            soft4 = np.mean([S[m] for m in OTHERS], axis=0)
-            rank4 = np.mean([rankdata(S[m]) / len(y) for m in OTHERS], axis=0)
+            v_others = np.stack([P[m] for m in OTHERS]).sum(0) / len(OTHERS)
+            v_all = np.stack([P[m] for m in ALL]).sum(0) / len(ALL)
+            soft_others = np.mean([S[m] for m in OTHERS], axis=0)
+            rank_others = np.mean([rankdata(S[m]) / len(y) for m in OTHERS], axis=0)
 
             cand = {
                 "saplma alone": (P["saplma"], S["saplma"]),
-                "no-saplma vote_hard": (None, v4),
-                "no-saplma vote_soft": (None, soft4),
-                "no-saplma vote_rank": (None, rank4),
-                "all-5 vote_soft": (None, np.mean([S[m] for m in ALL], axis=0)),
-                "all-5 vote_hard": (None, v5),
+                "no-saplma vote_hard": (None, v_others),
+                "no-saplma vote_soft": (None, soft_others),
+                "no-saplma vote_rank": (None, rank_others),
+                f"all-{len(ALL)} vote_soft": (None, np.mean([S[m] for m in ALL], axis=0)),
+                f"all-{len(ALL)} vote_hard": (None, v_all),
             }
             for m in OTHERS:
                 cand[f"  {m} alone"] = (P[m], S[m])

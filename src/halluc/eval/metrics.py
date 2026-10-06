@@ -12,10 +12,13 @@ import numpy as np
 from scipy.stats import binomtest, chi2
 from sklearn.metrics import (
     accuracy_score,
+    average_precision_score,
+    balanced_accuracy_score,
     cohen_kappa_score,
     f1_score,
     matthews_corrcoef,
     roc_auc_score,
+    roc_curve,
 )
 
 
@@ -49,6 +52,39 @@ def score_predictions(y_true: np.ndarray, scores: np.ndarray, threshold: float) 
         "threshold": float(threshold),
         "n": int(len(y_true)),
         "positive_rate": float(y_true.mean()),
+    }
+
+
+def tpr_at_fpr(y_true: np.ndarray, scores: np.ndarray, max_fpr: float) -> float | None:
+    """Highest recall reachable while the false-positive rate stays at or below max_fpr."""
+    if len(np.unique(y_true)) < 2:
+        return None
+    fpr, tpr, _ = roc_curve(y_true, scores)
+    return float(tpr[fpr <= max_fpr].max())
+
+
+def binary_metrics(y_true: np.ndarray, scores: np.ndarray, preds: np.ndarray) -> dict:
+    """The metric set of ADDING_A_METHOD.md §5.4, for one slice.
+
+    Threshold-free metrics read `scores`; the others read the hard decisions `preds`,
+    which the caller produced with a threshold fitted away from this slice. Accuracy is
+    always paired with its majority-class floor, because base rates here run from 0.15
+    to 0.66 and accuracy alone hides that.
+    """
+    both = len(np.unique(y_true)) > 1
+    positive_rate = float(y_true.mean())
+    return {
+        "n": int(len(y_true)),
+        "positive_rate": positive_rate,
+        "auroc": float(roc_auc_score(y_true, scores)) if both else None,
+        "auprc": float(average_precision_score(y_true, scores)) if both else None,
+        "tpr_at_fpr05": tpr_at_fpr(y_true, scores, 0.05),
+        "tpr_at_fpr10": tpr_at_fpr(y_true, scores, 0.10),
+        "mcc": float(matthews_corrcoef(y_true, preds)),
+        "balanced_accuracy": float(balanced_accuracy_score(y_true, preds)) if both else None,
+        "f1": float(f1_score(y_true, preds, zero_division=0)),
+        "accuracy": float(accuracy_score(y_true, preds)),
+        "majority_accuracy": max(positive_rate, 1.0 - positive_rate),
     }
 
 

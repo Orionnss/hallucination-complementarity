@@ -46,7 +46,7 @@ from halluc.eval.metrics import best_threshold
 from halluc.io import load_features, write_json
 from halluc.pipeline.stage5_posthoc import _folds, load_seed
 
-OTHER_BLOCKS = ["attn_baseline", "saplma", "svd_baseline", "icr"]
+OTHER_BLOCKS = ["saplma", "icr"]
 KS = (10, 64, 256)
 C_GRID = (0.003, 0.03, 0.3, 3.0)
 

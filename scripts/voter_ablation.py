@@ -50,9 +50,8 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 from halluc.io import write_json
 
-METHODS = ["saplma", "lapeigvals", "icr", "attn_baseline", "svd_baseline"]
-SHORT = {"saplma": "SAP", "lapeigvals": "LAP", "icr": "ICR",
-         "attn_baseline": "ATT", "svd_baseline": "SVD"}
+METHODS = ["saplma", "lapeigvals", "icr"]
+SHORT = {"saplma": "SAP", "lapeigvals": "LAP", "icr": "ICR"}
 RUNS = ["main", "gemma3-12b", "gemma3-4b", "llama3.2-3b",
         "llama3.2-3b-base", "gemma3-12b-pt"]
 SCOPES = ["pooled", "triviaqa", "nq_open", "squad_v2", "coqa"]
@@ -127,7 +126,7 @@ def report(out, scope="pooled"):
             print(f"    {'rule':6s}{'k':>3s}{'n_sub':>7s}{'mean':>9s}{'worst':>9s}"
                   f"{'best':>9s}   best subset")
             for rule in ("soft", "rank", "hard"):
-                for k in range(1, 6):
+                for k in range(1, len(METHODS) + 1):
                     vals = [(float(np.mean(v[metric])), key.split("|")[3])
                             for key, v in blob.items()
                             if key.startswith(f"{scope}|{rule}|{k}|")]
