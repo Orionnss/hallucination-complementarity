@@ -27,6 +27,7 @@ class LapEigvals(FeatureExtractor):
     """
 
     name = "lapeigvals"
+    needs = frozenset({"attentions"})
 
     def __init__(self, k: int = 10) -> None:
         self.k = k

@@ -9,7 +9,10 @@ from .base import FEATURES, FeatureExtractor, ForwardTrace
 
 
 def _last_token_stack(trace: ForwardTrace) -> torch.Tensor:
-    """Last token's hidden state at every layer -> [L+1, d].
+    """Hidden state of the last token the model read, at every layer -> [L+1, d].
+
+    For a stopped answer that is its last answer token; when generation hit
+    max_new_tokens the final generated token was never read, so it is the one before.
 
     Collected on CPU because a sharded model spreads layers over several devices, so the
     per-layer slices cannot be stacked in place. Each slice is only d floats.
@@ -27,6 +30,7 @@ class Saplma(FeatureExtractor):
     """
 
     name = "saplma"
+    needs = frozenset({"hidden_states"})
 
     #: float16 tops out at 65504. Gemma 3's residual stream reaches ~5.8e4 where Qwen3's
     #: peaks near 1e2, so a fixed float16 cast would silently overflow to inf on some

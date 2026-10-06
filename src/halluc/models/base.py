@@ -1,4 +1,4 @@
-"""Generator abstraction: produce an answer and the forward trace its features need."""
+"""Generator abstraction: produce an answer and, from the same call, the shared trace."""
 
 from __future__ import annotations
 
@@ -29,7 +29,10 @@ class Generation:
 class Generator:
     name: str
 
-    def generate(self, item: QAItem) -> tuple[Generation, ForwardTrace]:
+    def generate(
+        self, item: QAItem, needs: frozenset[str] | None = None
+    ) -> tuple[Generation, ForwardTrace]:
+        """Answer the item; the trace comes from the same call (ADDING_A_METHOD.md R2)."""
         raise NotImplementedError
 
     def unload(self) -> None:

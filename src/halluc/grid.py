@@ -18,7 +18,7 @@ MCC threshold, same refit. Nothing in this module changes how existing detectors
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
 from typing import Callable
@@ -53,8 +53,13 @@ class BlockSpec:
     #: Label-free view grid, computed from the drawn data. Must not read labels.
     view_grid: Callable[[dict[str, np.ndarray]], list[dict]] = lambda data: [{}]
     view: Callable[[dict[str, np.ndarray], dict], np.ndarray] | None = None
+    #: Ragged block (graph, sequence): `data[name]` is an object array with one dict of
+    #: arrays per item (io.load_items), handed to the reader as is.
+    ragged: bool = False
 
     def matrix(self, data: dict[str, np.ndarray], params: dict) -> np.ndarray:
+        if self.ragged:
+            return data[self.name]
         X = (self.view(data, params) if self.view is not None
              else data[self.arrays[0]].reshape(len(data[self.arrays[0]]), -1))
         X = np.asarray(X, dtype=np.float64)

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import importlib.util
 import subprocess
 import sys
 import types
@@ -45,6 +46,9 @@ class UpstreamSpec:
     packages: tuple[str, ...]
     #: Module name -> attribute names that are stubbed out (raise on use).
     stubs: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: Modules that are files at the repository root rather than inside a package
+    #: (e.g. CHARM's `training.py`). They are loaded from their file path.
+    top_level: tuple[str, ...] = ()
 
     @property
     def path(self) -> Path:
@@ -100,4 +104,15 @@ def load_upstream(spec: UpstreamSpec, modules: list[str]) -> dict[str, types.Mod
             sys.modules[module_name] = module
     # No sys.path entry: submodules resolve through the parent packages' `__path__`, so
     # nothing else in the checkout becomes importable by accident.
-    return {name: importlib.import_module(name) for name in modules}
+    loaded = {}
+    for name in modules:
+        if name in spec.top_level:
+            if name not in sys.modules:
+                file_spec = importlib.util.spec_from_file_location(name, spec.path / f"{name}.py")
+                module = importlib.util.module_from_spec(file_spec)
+                sys.modules[name] = module
+                file_spec.loader.exec_module(module)
+            loaded[name] = sys.modules[name]
+        else:
+            loaded[name] = importlib.import_module(name)
+    return loaded

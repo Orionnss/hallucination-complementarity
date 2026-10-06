@@ -27,6 +27,7 @@ fold partition and probe initialisation.
 from __future__ import annotations
 
 import argparse
+import json
 import time
 
 import numpy as np
@@ -39,6 +40,24 @@ from ..detectors import UnionDetector, build_detectors
 from ..eval.metrics import best_threshold, score_predictions
 from ..io import load_features, provenance, read_json, write_json
 from ..judges.base import Label
+
+
+def extracted_blocks(cfg: Config, dataset_name: str) -> set[str] | None:
+    """Blocks stage 1 wrote into stage1_extract/<ds>/, from its store checkpoint.
+
+    The shared pass records each item's block shapes in features_checkpoint.jsonl. Runs
+    made before it have no such file; None then means "assume every block".
+    """
+    path = cfg.stage_dir("stage1_extract", dataset_name) / "features_checkpoint.jsonl"
+    if not path.exists():
+        return None
+    with open(path) as fh:
+        for line in fh:
+            try:
+                return set(json.loads(line)["shapes"])
+            except (ValueError, KeyError):
+                continue
+    return set()
 
 
 def load_arrays(cfg: Config, dataset_name: str, blocks: list[str]) -> dict:
@@ -288,12 +307,31 @@ def main() -> None:
 
     # Probe-layer grids depend on the generator's depth, so build a throwaway detector
     # set to learn which blocks to load, then rebuild once the real depth is known.
-    needed = sorted({b for d in build_detectors().values() for b in d.blocks} | {"icr_mean"})
+    # Only the detectors whose blocks this run extracted. Our reimplemented LapEigvals is
+    # no longer extracted by default (the official adapter replaces it, scored by
+    # scripts/run_grid.py), so its detector and the unions that read it are skipped.
+    available = None
+    for name in cfg.datasets:
+        blocks = extracted_blocks(cfg, name)
+        if blocks is not None:
+            available = blocks if available is None else available & blocks
+    candidates = build_detectors()
+    keep = {n for n, d in candidates.items()
+            if available is None or set(d.blocks) <= available}
+    skipped = sorted(set(candidates) - keep)
+    if skipped:
+        print(f"skipping detectors without extracted blocks: {skipped}")
+    if not keep:
+        raise SystemExit("no stage-3 detector has its blocks extracted")
+    needed = sorted({b for n in keep for b in candidates[n].blocks}
+                    | ({"icr_mean"} if available is None or "icr_mean" in available else set()))
     arrays_by_dataset = {name: load_arrays(cfg, name, needed) for name in cfg.datasets}
-    n_layers = next(iter(arrays_by_dataset.values()))["data"]["saplma"].shape[1] - 1
-    detectors = build_detectors(n_layers=n_layers)
-    print(f"generator depth: {n_layers} layers -> saplma probe grid "
-          f"{[g['layer'] for g in detectors['saplma'].grid]}")
+    first = next(iter(arrays_by_dataset.values()))["data"]
+    n_layers = (first["saplma"].shape[1] - 1) if "saplma" in first else 40
+    detectors = {n: d for n, d in build_detectors(n_layers=n_layers).items() if n in keep}
+    if "saplma" in detectors:
+        print(f"generator depth: {n_layers} layers -> saplma probe grid "
+              f"{[g['layer'] for g in detectors['saplma'].grid]}")
     for name, arrays in arrays_by_dataset.items():
         print(
             f"[{name}] scored={len(arrays['y'])} "

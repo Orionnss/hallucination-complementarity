@@ -116,7 +116,8 @@ the setting on the setup that it reports.
   - SAPLMA depth: `layer_ablation.py`.
   - PCA width: `saplma_pca_sweep.py`. PCA-128 came from the budget for the union of
     methods. Nobody tested it for SAPLMA alone.
-  - LapEigvals k: `k_sweep.py`.
+  - LapEigvals k: was `k_sweep.py` (deleted 2026-10-06). The official adapter now
+    selects k on the inner split from {5, 10, 25, 50, 100}.
   - CHARM activation depth: fixed at 0.7, not tested.
 
 ### M6 — Combination claims without the correct comparator
@@ -192,13 +193,31 @@ restarts or an architecture search, and the probes do not.
 - **Evidence:** CHARM trains on the inner split only, so it sees less data. The MLP arm
   cannot use `class_weight`, so it has a disadvantage on CoQA. See `learning_curve.py`.
 
+### M12 — Methods read different traces
+Each method extracts its features in its own run of the model, with its own settings.
+The runs can differ in dtype, attention implementation (eager or fused), decoding against
+teacher forcing, prompt format, or library versions. Then two methods do not read the
+same model computation, even on the same answer. The difference goes into the comparison
+and is attributed to the methods.
+- **Test:** Extract all methods from one shared pass: one `generate()` call per item that
+  gives the answer and every method's input (`ADDING_A_METHOD.md`, rule R2 and §5.0).
+  Record a trace fingerprint. Refuse features that were made under a different
+  fingerprint.
+- **Evidence:** For LapEigvals on Qwen3-14B, the attention of one full forward pass and the
+  attention of incremental decoding with a KV cache are not equal in bf16. The largest
+  top-10 difference per item is about 0.03, for values up to 1.0 (20 items, F1-real in
+  `src/halluc/methods/lapeigvals/METHOD_CARD.md`). This is the same model on the same
+  tokens. Only the way that the trace was computed is different.
+
 ## 4. Procedure to test methods again
 
 Do the steps in this sequence. Each step names the problems that it covers and the output
 that it gives.
 
-**Step 0. Lock the evaluation setup (M7, M8).** Before you run a method, fix and record
+**Step 0. Lock the evaluation setup (M7, M8, M12).** Before you run a method, fix and record
 these items:
+- the shared extraction pass: one `generate()` call per item gives the answer and the
+  trace of every method, and its trace fingerprint is recorded,
 - the item pool and `pool_seed`,
 - a balanced draw for each seed,
 - grouped outer folds, stratified on (dataset, label),
@@ -325,6 +344,7 @@ methods again. It changes "most papers do this" from an impression into a measur
    | The paper describes the label source, reports agreement and does an audit. | M9 |
    | The paper uses more than one generator, with base models and instruction-tuned models. | M10 |
    | Training data and fit budget are equal for all methods. | M11 |
+   | All methods read the same model run (same dtype, attention implementation, decoding mode and prompt). | M12 |
 
 3. **Double coding.** Two coders code a subset. Report their κ. Write a rule to resolve
    disagreements.
@@ -363,13 +383,13 @@ must test it. These points are open:
 
 | Step | Status | Where |
 |---|---|---|
-| 0 Evaluation setup | Done. | stages 1–3, `DESIGN.md` |
-| 1–2 Decompose and reproduce | LapEigvals adapted from the official code. SAPLMA and ICR are reimplementations. CHARM: to adapt (reimplementation removed). | stage 3, `src/halluc/methods/` |
+| 0 Evaluation setup | Done. The shared extraction pass (M12) is implemented (2026-10-06); the full experiment must run again on it. | stages 1–3, `DESIGN.md`, `ADDING_A_METHOD.md` §5.0 |
+| 1–2 Decompose and reproduce | LapEigvals, ICR and CHARM adapted from the official code (method cards in `src/halluc/methods/`). SAPLMA is a reimplementation: no official code exists. | `src/halluc/methods/` |
 | 3 Reader grid | Done for 5 readers × 6 methods. Must be put into one table. | `reduction_sweep.py` |
 | 4 Equal budget | Done. The budget record for each method is not in a table yet. | `fair_comparison.py`, `saplma_mlp_tuned.py` |
 | 5 Baseline floor | Done for layer 0 and length. Log-prob was done, then removed on 2026-10-06; add it again to meet M3. | `layer_ablation.py` |
 | 6 Ablations of one axis | Laplacian: possible now (official LapEigvals against AttnEigvals, same reader). **Missing**: CHARM without the graph. | `run_grid.py` |
-| 7 Sensitivity | Done for SAPLMA layer, PCA width and k. | `layer_ablation.py`, `saplma_pca_sweep.py`, `k_sweep.py` |
+| 7 Sensitivity | Done for SAPLMA layer and PCA width. LapEigvals k is a view hyperparameter of the official adapter. | `layer_ablation.py`, `saplma_pca_sweep.py`, `run_grid.py` |
 | 8 Combinations | Done, with many methods. | `win_overlap.py`, `vote*.py`, `union_*.py`, `oracle_bound.py` |
 | 9 Scope | 6 generators. Transfer done for SAPLMA only. | `dataset_transfer.py` |
 | 10 Labels | Audit by an LLM adjudicator. No human audit. | `label_audit_analyze.py` |

@@ -9,7 +9,8 @@ judge-labelled reference, plus pairwise Cohen's κ and McNemar tests between pre
 | Decision | Value |
 |---|---|
 | Generator | `Qwen/Qwen3-14B`, **bf16** (unquantized — probes read these activations) |
-| Generation | greedy, `enable_thinking=False`, `max_new_tokens=256` |
+| Generation | greedy, `enable_thinking=False`, `max_new_tokens=256`, **eager attention** |
+| Extraction | **one shared pass**: the `generate()` call that makes the answer also returns the attentions, hidden states and logits that every method reads (no second forward pass) |
 | Judges | 3 local models, **4-bit NF4**, majority vote |
 | Staging | generator and judges **never co-resident** — stage 1 unloads before stage 2 |
 | Pool / N / seeds | 4000 per dataset (NQ-Open capped at 3610), N=2000 per seed, 5 seeds |
@@ -41,9 +42,8 @@ rate and Cohen's κ are written into the stage-2 JSON.
 
 ## Detectors
 
-Three method entries plus two union comparators, all reading features produced in a
-**single extraction loop** (stage 1), so the generator runs exactly once per pool item.
-Methods adapted from their official code run in their own stages (see below).
+Three method entries plus two union comparators. Every method, ours or adapted, reads
+the same **shared trace**, made once per item in stage 1 (see "Extraction mechanics").
 
 | Name | Features (Qwen3-14B: L=40, H=40, d=5120) | Dim | Head |
 |---|---|---|---|
@@ -54,7 +54,9 @@ Methods adapted from their official code run in their own stages (see below).
 | `union_equal` | each block PCA'd to 128 first, then concat | 384 | logistic reg. |
 
 `lapeigvals`, `saplma` and `icr` here are our reimplementations. SAPLMA stays
-reimplemented, because no official code exists. Removed on 2026-10-06: our own
+reimplemented, because no official code exists. Our `lapeigvals` is no longer extracted
+by default (the official adapter replaces it), so stage 3 skips its detector and the two
+unions; unions over the official blocks belong in the grid. Removed on 2026-10-06: our own
 baselines `attn_baseline`, `svd_baseline` and the token log-prob features, and our CHARM
 reimplementation (stage 6). The no-Laplacian control is now the official AttnEigvals
 block of the LapEigvals adapter.
@@ -64,28 +66,48 @@ Both union variants are reported: `union_raw` shows whether concatenation helps 
 
 ### Extraction mechanics
 
-`generate()` returns per-step attentions that are awkward to assemble, so stage 1 does:
-generate greedily → **re-forward the full prompt+answer sequence once** with
-`output_attentions=True, output_hidden_states=True` (eager attention) → compute every
-method's features from that one pass. `T` covers prompt + generation, per LapEigvals.
+**Shared extraction pass (decided and implemented 2026-10-06).** Stage 1 makes one call per
+item: `generate()` with eager attention, greedy, bf16, batch size 1, and
+`output_attentions`, `output_hidden_states`, `output_logits` set for the union of what
+the enabled adapters need. That call gives the scored answer **and** the trace. There is
+no second forward pass. Stage 1 calls every adapter on the trace while it is in memory,
+then stores only the adapters' blocks. `ADDING_A_METHOD.md` §5.0 defines the trace, its
+two views (native per-step, and stacked full matrices) and its fingerprint. Code:
+`ForwardTrace.from_generate` (the cut), `HFGenerator.generate(item, needs)`,
+`pipeline/stage1_extract.py` (stores, fingerprint, `--features` for a later method).
+
+Why one pass: the official LapEigvals, ICR and CHARM code all read `generate()` output, so
+the native view is their own input. A full forward pass over the same tokens does not give
+the same attentions in bf16 (top-10 LapEigvals values differ by up to ~0.03 on
+Qwen3-14B), so features from different passes are not comparable (`PROTOCOL.md`, M12).
+
+The trace cannot be stored (~13 GB of attentions per item at T = 2000). To add a method
+later, stage 1 runs again with only that adapter; it must reproduce the stored generated
+ids and the trace fingerprint, or it stops.
+
+**Runs made before the change** (all six on MeluXina, 2026-09) used the earlier
+mechanics: generate with fused (sdpa) attention, then re-forward the prompt + answer once
+with eager attention. Eager generation can change greedy answers, so the full experiment
+will be run again, from generation and labelling, when the shared pass is implemented.
+Results from the earlier runs and from the new runs must not be mixed.
 
 ICR needs `Δx^ℓ_i` for *all* token positions — storing those would be ~126 MB/sample, so
 ICR is reduced to its ~40 scores inside the loop and only those are persisted. This is
-exactly why features are computed during extraction rather than from dumped activations.
+why every method computes its features during extraction, not from stored activations.
 
 ### Methods adapted from their official code
 
 `ADDING_A_METHOD.md` is the procedure. Each method lives in `src/halluc/methods/<name>/`
 and calls its upstream code from `original-repos/<name>` at a pinned commit (not in
-git). Its features are extracted in a separate stage that re-forwards the stage-1
-answer, and `scripts/run_grid.py` scores every (feature block, reader) cell under the
+git). Its adapter is a stage-1 extractor (`store = "methods"`) that runs on the shared
+trace, and `scripts/run_grid.py` scores every (feature block, reader) cell under the
 protocol below, through stage 3's `run_fold`.
 
 | Method | Upstream | Status |
 |---|---|---|
 | LapEigvals | graphml-lab-pwr/lapeigvals (no licence) | adapted, `methods/lapeigvals` |
-| ICR | XavierZhang2002/ICR_Probe (Apache-2.0) | to adapt; `features/icr.py` is ours |
-| CHARM | Noired/charm (MIT) | to adapt; our reimplementation was removed |
+| ICR | XavierZhang2002/ICR_Probe (Apache-2.0) | adapted, `methods/icr_probe`; `features/icr.py` (ours) still extracted for comparison |
+| CHARM | Noired/charm (MIT) | adapted, `methods/charm` (needs `torch-geometric==2.6.1`); our reimplementation was removed |
 
 The CHARM reimplementation and its uncommitted work are backed up in
 `$HALLUC_BASE/backups/charm-reimplementation-2026-10-06/`.
@@ -130,7 +152,8 @@ Every stage writes JSON metadata and resumes from checkpoints. Float features go
 runs/<run_id>/
   config.json                     resolved config + git sha + library versions
   stage1_extract/<ds>/
-    manifest.json                 per-item metadata, generation, timings, feature refs
+    manifest.json                 per-item metadata, generation, timings, feature refs,
+                                  trace fingerprint, adapters run in this pass
     features_<shard>.npz          float arrays
     checkpoint.jsonl              append-only completed ids (resume)
   stage2_judge/<ds>/
@@ -141,7 +164,7 @@ runs/<run_id>/
     predictions.npz               per-method out-of-fold probabilities + hard decisions
     metrics.json                  AUROC/MCC/threshold per method per fold
   methods/<name>/<ds>/
-    spec.json                     upstream commit and settings the blocks were built under
+    spec.json                     upstream commit, settings and trace fingerprint
     *.npz, checkpoint.jsonl       feature blocks of an adapted method, resumable
   grid/pooled/<tag>/seed<k>/
     predictions.npz               scores__/preds__/native_preds__<block>__<reader>

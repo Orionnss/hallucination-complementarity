@@ -1,31 +1,21 @@
-"""Extractor adapter: our forward trace in, the official LapEigvals features out.
+"""Stage-1 adapter: the shared trace in, the official LapEigvals features out.
 
 The official pipeline (hallucinations/llm/feature_storage.py, batch_size=1) does this per
-item:
+item, on the output of `model.generate(output_attentions=True)` with eager attention:
 
-  1. `model.generate(..., output_attentions=True)` with eager attention, in bf16
-  2. `stack_attention_matrix`  - per-step attention rows -> one [1, H, T', T'] per layer,
-                                 where T' = len(generated_tokens) - 1: the final generated
-                                 token is never fed back, so it has no attention row
-  3. `remove_padding_from_intermediate_states` - strips pad tokens at both ends
-  4. `attention_diagonal`, `laplacian_diagonal_from_attn(vertical_edges=False)`, computed
-     on CPU in the attention dtype (bf16), then cast to float32 when loaded
-  5. `get_laplacian_eigvals_per_head_topk(layer_idx=None, top_k=k)` - all layers, top-k
+  1. `_map_attentions_to_cpu`, then `stack_attention_matrix` - per-step attention rows ->
+     one [1, H, T', T'] per layer, where T' = len(generated_tokens) - 1: the final
+     generated token is never fed back, so it has no attention row
+  2. `remove_padding_from_intermediate_states` - strips pad tokens at both ends
+  3. `attention_diagonal`, `laplacian_diagonal_from_attn(vertical_edges=False)`, on CPU
+     in the attention dtype (bf16), then cast to float32 when loaded
+  4. `get_laplacian_eigvals_per_head_topk(layer_idx=None, top_k=k)` - all layers, top-k
      per head, flattened
 
-This adapter replaces step 1 only. The harness owns generation (rule R2), so the input is
-the stage-1 answer re-forwarded in one eager pass. Step 2 then reduces to choosing T': for
-a causal model the stacked per-step rows and the rows of a single full forward are the
-same matrix up to numerical noise (test F1 checks the stacking; the KV-cache noise is a
-recorded deviation). Steps 3-5 are the upstream functions, called unchanged.
-
-Choosing T' needs to know how generation ended, because the stage-1 sequence and the
-upstream `generated_tokens` differ in their last token:
-
-  stopped, terminator stripped by stage 1  upstream had answer + EOS, so T' = T and the
-                                           EOS is appended to the token ids
-  stopped, terminator kept (Gemma's 106)   upstream had the same ids, so T' = T - 1
-  hit max_new_tokens                       upstream had the same ids, so T' = T - 1
+The shared trace's native view *is* that `generate()` output, cut to the kept answer by
+the harness (ForwardTrace.from_generate), with `input_ids` as `generated_tokens`. So every
+step above is the upstream function, called on its own input format. Nothing is rebuilt
+or converted here, and there is no second forward pass (ADDING_A_METHOD.md, rule R2).
 """
 
 from __future__ import annotations
@@ -33,8 +23,8 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from ...features.base import ForwardTrace
-from .upstream_spec import TOP_K_EIGVALS, load
+from ...features.base import FEATURES, FeatureExtractor, ForwardTrace
+from .upstream_spec import SPEC, TOP_K_EIGVALS, load
 
 #: Every k the official sweep can offer. Stored once; smaller k are prefixes, because the
 #: upstream top-k is `sort(descending)[..., :k]`. Values past an item's sequence length
@@ -46,34 +36,8 @@ ATTN_BLOCK = "attneigvals_official"
 LEN_BLOCK = "lapeigvals_official_T"
 
 
-def official_input(
-    attentions: tuple[torch.Tensor, ...],
-    input_ids: torch.Tensor,
-    stopped: bool,
-    ends_with_terminator: bool,
-    eos_token_id: int,
-    device: str = "cpu",
-) -> tuple[list[torch.Tensor], torch.Tensor]:
-    """Rebuild upstream's (stacked attentions, generated_tokens) for one item.
-
-    attentions: L tensors [H, T, T] from one eager forward over input_ids [T].
-    Returns per-layer [1, H, T', T'] on `device` in the attention dtype, and [1, T'+1] ids.
-    """
-    T = int(input_ids.shape[0])
-    if any(a.shape[-1] != T for a in attentions):
-        raise ValueError("attention width does not match input_ids")
-    ids = input_ids.to("cpu").long()
-    if stopped and not ends_with_terminator:
-        generated = torch.cat([ids, torch.tensor([eos_token_id])])
-        t_prime = T
-    else:
-        generated = ids
-        t_prime = T - 1
-    stacked = [a[:, :t_prime, :t_prime].to(device).unsqueeze(0) for a in attentions]
-    return stacked, generated.unsqueeze(0).to(device)
-
-
-class OfficialSpectralFeatures:
+@FEATURES.register("lapeigvals_official")
+class OfficialSpectralFeatures(FeatureExtractor):
     """LapEigvals and AttnEigvals blocks, computed by the official functions.
 
     AttnEigvals is the paper's own no-Laplacian control (same attention, same top-k, same
@@ -82,29 +46,32 @@ class OfficialSpectralFeatures:
     PCA and so confounded the two.
     """
 
-    def __init__(self, pad_token_id: int, eos_token_id: int, device: str = "cpu") -> None:
-        self.up = load()
-        self.pad_token_id = pad_token_id
-        self.eos_token_id = eos_token_id
-        self.device = device
+    name = "lapeigvals_official"
+    needs = frozenset({"attentions"})
+    store = "methods"
 
-    def diagonals(
-        self, trace: ForwardTrace, stopped: bool, ends_with_terminator: bool
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Upstream steps 2-4. Returns (attn_diag, laplacian_diag), each [L, H, T''] float32."""
-        if trace.input_ids is None:
-            raise ValueError("trace has no input_ids; produce it with HFGenerator._trace")
-        stacked, generated = official_input(
-            trace.attentions, trace.input_ids, stopped, ends_with_terminator,
-            self.eos_token_id, self.device,
-        )
-        processing = self.up["processing"]
+    def __init__(self, device: str = "cpu") -> None:
+        # Upstream maps the attentions to CPU before stacking and computes there.
+        self.device = device
+        self.up = load()
+
+    def params(self) -> dict:
+        return {"device": self.device, "k_max": K_MAX, "upstream": SPEC.url,
+                "commit": SPEC.commit}
+
+    def diagonals(self, trace: ForwardTrace) -> tuple[torch.Tensor, torch.Tensor]:
+        """Upstream steps 1-3. Returns (attn_diag, laplacian_diag), each [L, H, T''] float32."""
+        if trace.step_attentions is None or trace.input_ids is None:
+            raise ValueError("lapeigvals_official needs the native generate() view of the "
+                             "trace, with attentions (ADDING_A_METHOD.md §5.0)")
+        steps = tuple(tuple(a.to(self.device) for a in step) for step in trace.step_attentions)
         weights = self.up["attention_weights"]
-        (example,) = processing.remove_padding_from_intermediate_states(
+        stacked = weights.stack_attention_matrix(steps)
+        (example,) = self.up["processing"].remove_padding_from_intermediate_states(
             per_layer_batched_data=stacked,
             data_type="attn",
-            generated_tokens=generated,
-            pad_token_id=self.pad_token_id,
+            generated_tokens=trace.input_ids.unsqueeze(0).to(self.device),
+            pad_token_id=trace.pad_token_id,
         )
         attn_diag = weights.attention_diagonal(example)
         lap_diag = weights.laplacian_diagonal_from_attn(example, vertical_edges=False)
@@ -112,7 +79,7 @@ class OfficialSpectralFeatures:
         return attn_diag.float(), lap_diag.float()
 
     def topk(self, diag: torch.Tensor, laplacian: bool) -> np.ndarray:
-        """Upstream step 5 at k = min(K_MAX, T''), reshaped to [L, H, K_MAX], NaN-padded."""
+        """Upstream step 4 at k = min(K_MAX, T''), reshaped to [L, H, K_MAX], NaN-padded."""
         feats = self.up["attn_feats"]
         n_layers, n_heads, n_tokens = diag.shape
         k = min(K_MAX, n_tokens)
@@ -123,10 +90,8 @@ class OfficialSpectralFeatures:
         out[:, :, :k] = flat.reshape(n_layers, n_heads, k).cpu().numpy()
         return out
 
-    def extract(
-        self, trace: ForwardTrace, stopped: bool, ends_with_terminator: bool
-    ) -> dict[str, np.ndarray]:
-        attn_diag, lap_diag = self.diagonals(trace, stopped, ends_with_terminator)
+    def extract(self, trace: ForwardTrace) -> dict[str, np.ndarray]:
+        attn_diag, lap_diag = self.diagonals(trace)
         return {
             LAP_BLOCK: self.topk(lap_diag, laplacian=True),
             ATTN_BLOCK: self.topk(attn_diag, laplacian=False),

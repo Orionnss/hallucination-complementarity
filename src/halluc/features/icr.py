@@ -41,6 +41,7 @@ def _jensen_shannon(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
 @FEATURES.register("icr")
 class IcrScore(FeatureExtractor):
     name = "icr"
+    needs = frozenset({"attentions", "hidden_states"})
 
     def __init__(self, top_k: int = 10) -> None:
         self.top_k = top_k

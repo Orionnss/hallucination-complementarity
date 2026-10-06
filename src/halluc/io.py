@@ -220,3 +220,31 @@ def load_features(
             f"(e.g. {sorted(missing)[:3]})"
         )
     return np.stack([found[i] for i in item_ids])
+
+
+def load_items(
+    shard_dir: str | Path, feature_names: list[str], item_ids: list[str]
+) -> np.ndarray:
+    """Ragged blocks (graphs, sequences): one dict {feature: array} per item.
+
+    Returned as a 1-D object array in the order of `item_ids`, so it can be indexed,
+    subset and concatenated like any other block. Arrays keep their stored dtype and
+    shape; nothing is stacked.
+    """
+    shard_dir = Path(shard_dir)
+    wanted, names = set(item_ids), set(feature_names)
+    found: dict[str, dict[str, np.ndarray]] = {}
+    for shard in sorted(shard_dir.glob("*.npz")):
+        with np.load(shard) as data:
+            for key in data.files:
+                item_id, _, fname = key.rpartition("/")
+                if fname in names and item_id in wanted:
+                    found.setdefault(item_id, {})[fname] = data[key]
+    missing = [i for i in item_ids if set(found.get(i, {})) != names]
+    if missing:
+        raise KeyError(f"{len(missing)} items lack some of {sorted(names)} in {shard_dir} "
+                       f"(e.g. {missing[:3]})")
+    out = np.empty(len(item_ids), dtype=object)
+    for k, item_id in enumerate(item_ids):
+        out[k] = found[item_id]
+    return out

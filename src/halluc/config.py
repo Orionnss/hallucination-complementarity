@@ -70,7 +70,13 @@ class Config:
         ]
     )
     features: list[str] = field(
-        default_factory=lambda: ["lapeigvals", "saplma", "icr"]
+        # Stage-1 extractors (ADDING_A_METHOD.md R2): our reimplementations write into
+        # stage1_extract/, adapters of official code (lapeigvals_official) into methods/.
+        # Our own `lapeigvals` stays registered but is not run: the official adapter
+        # replaces it (validated equivalent on `main`, 2026-10-05). SAPLMA has no
+        # official code (ours); our `icr` is kept next to the official one.
+        default_factory=lambda: ["lapeigvals_official", "icr_official", "charm_official",
+                                 "saplma", "icr"]
     )
     shard_size: int = 250
 

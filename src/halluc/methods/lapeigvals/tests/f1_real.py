@@ -1,16 +1,16 @@
-"""F1-real: deviation D1, measured on real items (GPU).
+"""F1 and F3 on real `generate()` outputs (GPU), for the shared trace (ADDING_A_METHOD.md §7).
 
-Upstream reads attention from `generate()`: one row per decoding step, computed against a
-KV cache. The adapter reads one full forward over the same tokens. The two are the same
-matrix in exact arithmetic; in bf16 they are not. This measures by how much, on the
-features themselves, and whether it changes the top-k order.
+Per item, three generate() calls through HFGenerator, exactly as stage 1 makes them:
 
-For each item: greedy `generate(output_attentions=True)` with eager attention and the
-harness prompt, run through the official pipeline exactly as feature_storage.py does it;
-then the generated ids re-forwarded and run through the adapter. Both feed the same
-official functions, so any difference is the attention input alone.
+  F1   the official pipeline (map to CPU -> stack_attention_matrix -> remove_padding ->
+       diagonals -> top-k), run on the trace's native view and its ids, against the
+       adapter on the same trace. Same input, so the result must be bitwise equal.
+  F3   a second call with the same needs: same generated ids, identical blocks.
+  F3b  a third call that asks for hidden states only (no attention weights): same
+       generated ids. Requesting different outputs must not change the computation,
+       because a later stage-1 run for another method may request different outputs.
 
-Usage: uv run python src/halluc/methods/lapeigvals/tests/f1_real.py --run llama3.2-3b --n 20
+Usage: uv run python src/halluc/methods/lapeigvals/tests/f1_real.py --model llama3.2-3b --n 5
 """
 
 from __future__ import annotations
@@ -23,77 +23,69 @@ import torch
 
 from halluc.config import Config
 from halluc.datasets import DATASETS
-from halluc.io import read_json
 from halluc.methods.lapeigvals import OfficialSpectralFeatures, load
 from halluc.methods.lapeigvals.adapter import LAP_BLOCK
-from halluc.models.hf import HFGenerator
+from halluc.models.hf import HFGenerator, resolve_model_id
 
 
-@torch.inference_mode()
+def official_lap(up, trace) -> torch.Tensor:
+    steps = tuple(tuple(a.cpu() for a in step) for step in trace.step_attentions)
+    stacked = up["attention_weights"].stack_attention_matrix(steps)
+    (example,) = up["processing"].remove_padding_from_intermediate_states(
+        per_layer_batched_data=stacked, data_type="attn",
+        generated_tokens=trace.input_ids.unsqueeze(0), pad_token_id=trace.pad_token_id)
+    return up["attention_weights"].laplacian_diagonal_from_attn(
+        example, vertical_edges=False).float()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--run", required=True)
+    ap.add_argument("--model", required=True, help="preset or HF id")
     ap.add_argument("--device", default="cuda:0")
-    ap.add_argument("--n", type=int, default=20, help="items per dataset")
+    ap.add_argument("--n", type=int, default=5, help="items per dataset")
     ap.add_argument("--datasets", nargs="*", default=["triviaqa", "nq_open", "squad_v2", "coqa"])
     args = ap.parse_args()
 
-    cfg = Config(); cfg.run_id = args.run
-    model_id = read_json(cfg.stage_dir("stage1_extract", args.datasets[0]) / "manifest.json")["generator"]
-    gen = HFGenerator(model_id=model_id, device=args.device, dtype="bfloat16")
-    tok = gen.tokenizer
-    pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
-    ext = OfficialSpectralFeatures(pad_token_id=pad_id, eos_token_id=tok.eos_token_id)
+    cfg = Config()
+    gen = HFGenerator(model_id=resolve_model_id(args.model), device=args.device, dtype="bfloat16")
+    ext = OfficialSpectralFeatures()
     up = load()
+    needs = frozenset({"attentions"})
 
     rows = []
     for ds in args.datasets:
-        items = DATASETS.create(ds).sample_pool(cfg.pool_size, cfg.pool_seed)[: args.n]
-        for item in items:
-            p_ids = tok(gen._prompt_text(item), return_tensors="pt").input_ids.to(args.device)
-            gen.model.set_attn_implementation("eager")
-            try:
-                out = gen.model.generate(
-                    p_ids, max_new_tokens=gen.max_new_tokens, do_sample=False,
-                    temperature=None, top_p=None, top_k=None, pad_token_id=pad_id,
-                    output_attentions=True, return_dict_in_generate=True,
-                )
-            finally:
-                gen.model.set_attn_implementation("sdpa")
-            generated = out.sequences.cpu()
-            steps = tuple(tuple(a.cpu() for a in step) for step in out.attentions)
-            stacked = up["attention_weights"].stack_attention_matrix(steps)
-            (example,) = up["processing"].remove_padding_from_intermediate_states(
-                per_layer_batched_data=stacked, data_type="attn",
-                generated_tokens=generated, pad_token_id=pad_id)
-            official = up["attention_weights"].laplacian_diagonal_from_attn(
-                example, vertical_edges=False).float()
-            del out, steps, stacked, example
+        for item in DATASETS.create(ds).sample_pool(cfg.pool_size, cfg.pool_seed)[: args.n]:
+            g1, t1 = gen.generate(item, needs)
+            feats1 = ext.extract(t1)
+            lap_up = official_lap(up, t1)
+            k = min(10, lap_up.shape[-1])
+            up_top = lap_up.sort(dim=-1, descending=True).values[..., :k].numpy()
+            f1 = bool(np.array_equal(up_top, feats1[LAP_BLOCK][..., :k]))
+            del t1
 
-            # Adapter path: one full forward over all generated ids. Upstream never feeds
-            # the last one back, so this is the T' = T - 1 case of official_input.
-            trace = gen._trace(generated.to(args.device), p_ids.shape[1])
-            _, adapted = ext.diagonals(trace, stopped=True, ends_with_terminator=True)
-            del trace
+            g2, t2 = gen.generate(item, needs)
+            feats2 = ext.extract(t2)
+            del t2
+            f3 = (g1.meta["generated_ids"] == g2.meta["generated_ids"]
+                  and all(np.array_equal(feats1[b], feats2[b], equal_nan=True) for b in feats1))
 
-            k = min(10, official.shape[-1])
-            top_off = official.sort(dim=-1, descending=True).values[..., :k]
-            top_ada = adapted.sort(dim=-1, descending=True).values[..., :k]
-            rows.append({
-                "dataset": ds, "item_id": item.item_id, "T": int(official.shape[-1]),
-                "same_T": official.shape == adapted.shape,
-                "max_abs_diag": float((official - adapted).abs().max()) if official.shape == adapted.shape else None,
-                "max_abs_top10": float((top_off - top_ada).abs().max()) if official.shape == adapted.shape else None,
-                "max_abs_value": float(official.abs().max()),
-            })
+            g3, t3 = gen.generate(item, frozenset({"hidden_states"}))
+            del t3
+            f3b = g1.meta["generated_ids"] == g3.meta["generated_ids"]
+
+            rows.append({"dataset": ds, "item_id": item.item_id,
+                         "prompt": g1.prompt_tokens, "answer": g1.answer_tokens,
+                         "trace_len": g1.meta["trace_len"], "finish": g1.finish_reason,
+                         "F1_bitwise": f1, "F3_same_ids_and_blocks": f3,
+                         "F3b_same_ids_other_needs": f3b})
             print(json.dumps(rows[-1]), flush=True)
+            torch.cuda.empty_cache()
 
-    diffs = np.array([r["max_abs_top10"] for r in rows if r["max_abs_top10"] is not None])
-    print(json.dumps({
-        "run": args.run, "n": len(rows), "same_T": sum(r["same_T"] for r in rows),
-        "top10_max_abs_diff": {"median": float(np.median(diffs)), "max": float(diffs.max())},
-        "exact": int((diffs == 0).sum()),
-    }))
+    summary = {k: f"{sum(r[k] for r in rows)}/{len(rows)}"
+               for k in ("F1_bitwise", "F3_same_ids_and_blocks", "F3b_same_ids_other_needs")}
+    print(json.dumps({"model": args.model, "n": len(rows), **summary,
+                      "max_trace_len": max(r["trace_len"] for r in rows),
+                      "peak_gib": round(torch.cuda.max_memory_allocated(args.device) / 2**30, 1)}))
 
 
 if __name__ == "__main__":

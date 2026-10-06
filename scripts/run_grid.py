@@ -38,9 +38,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from halluc.config import Config
 from halluc.eval.metrics import binary_metrics, score_predictions
 from halluc.grid import BLOCKS, READERS, make_cell
-from halluc.io import load_features, provenance, write_json
+from halluc.io import load_features, load_items, provenance, write_json
 from halluc.pipeline.stage3_train import draw_and_combine, load_arrays, run_fold
-import halluc.methods.lapeigvals.reader  # noqa: F401  (registers blocks and reader)
+import halluc.methods.charm.reader  # noqa: F401  (registers blocks and readers)
+import halluc.methods.icr_probe.reader  # noqa: F401
+import halluc.methods.lapeigvals.reader  # noqa: F401
 
 DATASETS = ["triviaqa", "nq_open", "squad_v2", "coqa"]
 
@@ -52,6 +54,10 @@ def load(cfg: Config, datasets: list[str], blocks: list[str]) -> dict[str, dict]
         arrays = load_arrays(cfg, ds, [])
         for block in blocks:
             spec = BLOCKS.create(block)
+            if spec.ragged:
+                arrays["data"][spec.name] = load_items(spec.source(cfg, ds), list(spec.arrays),
+                                                       arrays["item_ids"])
+                continue
             for name in spec.arrays:
                 if name not in arrays["data"]:
                     arrays["data"][name] = load_features(spec.source(cfg, ds), name,

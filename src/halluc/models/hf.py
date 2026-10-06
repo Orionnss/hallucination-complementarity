@@ -1,15 +1,15 @@
-"""HuggingFace causal-LM generator.
+"""HuggingFace causal-LM generator: one `generate()` call per item is the whole trace.
 
-Two forward regimes per item, deliberately:
+The call that produces the scored answer also returns, per decoding step, the attentions,
+hidden states and logits every extractor reads (ADDING_A_METHOD.md, rule R2 and §5.0).
+There is no second forward pass. Attention is always eager, even when no extractor asks
+for attention weights: the attention implementation changes the bf16 arithmetic and so
+can change greedy answers, and it is part of the trace fingerprint. A later stage-1 run
+that adds one method must reproduce the same ids, so it must run the same kernels.
 
-1. `generate()` under SDPA — fast, and attention weights are not needed yet.
-2. one re-forward of prompt+answer under eager attention — yields the full [T, T]
-   attention matrix the spectral features are defined over.
-
-Re-forwarding rather than harvesting attentions during generation is exact under greedy
-decoding (the re-forward is teacher-forced on the tokens the model actually produced)
-and avoids stitching together the ragged per-step attention slices that `generate`
-emits. The extra pass costs one forward against 256 decode steps.
+The earlier design generated under SDPA and re-forwarded prompt+answer under eager
+attention. That gives different bf16 attentions from the decoding pass (PROTOCOL.md, M12),
+and the official LapEigvals, ICR and CHARM code all read decoding-pass output.
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ class HFGenerator(Generator):
         self.max_seq_len = max_seq_len
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_id)
-        kwargs: dict = {"dtype": getattr(torch, dtype), "attn_implementation": "sdpa"}
+        kwargs: dict = {"dtype": getattr(torch, dtype), "attn_implementation": "eager"}
         if load_in_4bit:
             from transformers import BitsAndBytesConfig
 
@@ -171,8 +171,42 @@ class HFGenerator(Generator):
             enable_thinking=self.enable_thinking,
         )
 
+    def _item_text(self, item: QAItem) -> str:
+        """The item's own text inside the prompt (see ForwardTrace.user_span)."""
+        if self.completion_mode:
+            # The final block of the few-shot prompt: everything after the shots.
+            prompt = base_prompt_text(item)
+            marker = "Passage: " if item.context else "Q: "
+            return prompt[prompt.rfind(marker):]
+        return generator_messages(item)[-1]["content"]
+
+    def user_span(self, item: QAItem, prompt: str) -> tuple[int, int]:
+        """[start, end) token positions of the item's own text in the rendered prompt.
+
+        Located by character offsets in the same tokenisation generate() receives, so
+        the span is exact for whatever template the generator uses.
+        """
+        text = self._item_text(item)
+        char_start = prompt.rfind(text)
+        if char_start < 0:
+            raise ValueError("item text not found in the rendered prompt")
+        char_end = char_start + len(text)
+        offsets = self.tokenizer(prompt, return_offsets_mapping=True)["offset_mapping"]
+        tokens = [i for i, (a, b) in enumerate(offsets) if b > char_start and a < char_end and b > a]
+        if not tokens:
+            raise ValueError("item text maps to no prompt token")
+        return tokens[0], tokens[-1] + 1
+
     @torch.inference_mode()
-    def generate(self, item: QAItem) -> tuple[Generation, ForwardTrace]:
+    def generate(
+        self, item: QAItem, needs: frozenset[str] | set[str] | None = None
+    ) -> tuple[Generation, ForwardTrace]:
+        """Generate the answer and return the trace of that same call.
+
+        `needs` is the union of what the enabled extractors read ("attentions",
+        "hidden_states", "logits"); only those outputs are requested from generate().
+        """
+        needs = frozenset(needs if needs is not None else ("attentions", "hidden_states"))
         started = time.perf_counter()
         prompt = self._prompt_text(item)
         prompt_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to(self.input_device)
@@ -193,14 +227,20 @@ class HFGenerator(Generator):
             top_p=None,
             top_k=None,
             pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
+            return_dict_in_generate=True,
+            output_attentions="attentions" in needs,
+            output_hidden_states="hidden_states" in needs,
+            output_logits="logits" in needs,
             **gen_kwargs,
         )
-        full_ids = out[0]
+        full_ids = out.sequences[0]
         answer_ids = full_ids[prompt_len:]
+        generated_ids = [int(t) for t in answer_ids]
         # Trailing EOS/pad are not part of the answer and would skew the last-token
         # features, which are read from the final position of the sequence.
         keep = len(answer_ids)
-        while keep > 0 and answer_ids[keep - 1].item() in self._stop_ids():
+        stop_ids = self._stop_ids()
+        while keep > 0 and answer_ids[keep - 1].item() in stop_ids:
             keep -= 1
         hit_cap = len(answer_ids) >= self.max_new_tokens and keep == len(answer_ids)
         finish_reason = "length" if hit_cap else "stop"
@@ -210,11 +250,17 @@ class HFGenerator(Generator):
         if self.completion_mode:
             keep, answer = self._trim_completion(answer_ids, answer, keep)
             answer_ids = answer_ids[:keep]
-        seq = full_ids[: prompt_len + keep].unsqueeze(0)
-        if seq.shape[1] > self.max_seq_len:
-            raise ValueError(f"sequence {seq.shape[1]} exceeds max_seq_len {self.max_seq_len}")
+        seq_len = prompt_len + keep
+        if seq_len > self.max_seq_len:
+            raise ValueError(f"sequence {seq_len} exceeds max_seq_len {self.max_seq_len}")
 
-        trace = self._trace(seq, prompt_len)
+        trace = ForwardTrace.from_generate(
+            full_ids, getattr(out, "attentions", None), getattr(out, "hidden_states", None),
+            getattr(out, "logits", None), prompt_len, keep,
+            pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
+            user_span=self.user_span(item, prompt),
+        )
         generation = Generation(
             item_id=item.item_id,
             answer=answer,
@@ -222,46 +268,16 @@ class HFGenerator(Generator):
             answer_tokens=int(keep),
             finish_reason=finish_reason,
             seconds=time.perf_counter() - started,
-            meta={"seq_len": int(seq.shape[1])},
+            meta={
+                "seq_len": int(seq_len),
+                # Tokens the model read: the last generated token is never fed back.
+                "trace_len": int(trace.input_ids.shape[0]) - 1,
+                # Every generated id, before trimming. A later stage-1 run (to add a
+                # method) must reproduce them exactly, or its trace is not this one.
+                "generated_ids": generated_ids,
+            },
         )
         return generation, trace
-
-    @torch.inference_mode()
-    def retrace(
-        self, item: QAItem, answer: str, expected_tokens: int | None = None
-    ) -> ForwardTrace:
-        """Forward trace for an answer stage 1 already produced, without regenerating.
-
-        Adapters that re-read the model (methods/, scripts/extract_*_official.py) need a
-        full attention trace per item but no new text: stage 1 recorded
-        what the model said, and greedy decoding makes that reproducible. Re-encoding
-        the stored answer and running the single eager forward costs one pass instead of
-        up to 256 decode steps, which is the difference between hours and a day over
-        four datasets.
-
-        The one risk is a tokenizer round trip that does not land back on the same ids
-        (measured at ~0.1% of items here, from decoded text that re-encodes one token
-        shorter). `expected_tokens` makes that visible: a mismatch raises, and the caller
-        falls back to a real `generate()` for that item rather than silently tracing a
-        sequence the model never produced.
-        """
-        prompt = self._prompt_text(item)
-        prompt_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to(self.input_device)
-        prompt_len = prompt_ids.shape[1]
-        answer_ids = self.tokenizer(
-            answer, return_tensors="pt", add_special_tokens=False
-        ).input_ids.to(self.input_device)
-
-        if expected_tokens is not None and answer_ids.shape[1] != expected_tokens:
-            raise ValueError(
-                f"re-encoded answer is {answer_ids.shape[1]} tokens, stage 1 recorded "
-                f"{expected_tokens}"
-            )
-
-        seq = torch.cat([prompt_ids, answer_ids], dim=1)
-        if seq.shape[1] > self.max_seq_len:
-            raise ValueError(f"sequence {seq.shape[1]} exceeds max_seq_len {self.max_seq_len}")
-        return self._trace(seq, prompt_len)
 
     def _trim_completion(self, answer_ids, answer: str, keep: int) -> tuple[int, str]:
         """Cut a base model's answer at the first stop marker, in tokens as well as text.
@@ -290,25 +306,20 @@ class HFGenerator(Generator):
         return (lo, got) if got == target else (keep, answer.strip())
 
     def _stop_ids(self) -> set[int]:
-        ids = {self.tokenizer.eos_token_id, self.tokenizer.pad_token_id}
-        return {i for i in ids if i is not None}
+        """Every id that ends generation, so none is kept as part of the answer.
 
-    @torch.inference_mode()
-    def _trace(self, seq: torch.Tensor, prompt_len: int) -> ForwardTrace:
-        """Single eager forward over prompt+answer, yielding [H, T, T] attentions."""
-        self.model.set_attn_implementation("eager")
-        try:
-            out = self.model(
-                seq, output_attentions=True, output_hidden_states=True, use_cache=False
-            )
-            return ForwardTrace(
-                attentions=tuple(a[0] for a in out.attentions),
-                hidden_states=tuple(h[0] for h in out.hidden_states),
-                prompt_len=prompt_len,
-                input_ids=seq[0].detach().cpu(),
-            )
-        finally:
-            self.model.set_attn_implementation("sdpa")
+        The tokenizer's eos is not enough: Gemma's tokenizer reports eos=1 (<eos>) while
+        its generation config also stops on 106 (<end_of_turn>), and the 2026-09 runs kept
+        that 106 as the final answer token. The generation config is the authority on
+        what stopped generation.
+        """
+        ids = {self.tokenizer.eos_token_id, self.tokenizer.pad_token_id}
+        cfg_eos = getattr(self.model.generation_config, "eos_token_id", None)
+        if isinstance(cfg_eos, (list, tuple, set)):
+            ids |= set(cfg_eos)
+        else:
+            ids.add(cfg_eos)
+        return {int(i) for i in ids if i is not None}
 
     def unload(self) -> None:
         del self.model
